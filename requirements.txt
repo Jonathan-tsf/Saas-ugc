@@ -1,0 +1,6 @@
+# Pas de dépendances externes pour le moment
+# boto3 est déjà inclus dans l'environnement Lambda AWS
+
+# Si tu ajoutes des dépendances plus tard, liste-les ici:
+# requests==2.31.0
+# pydantic==2.5.0

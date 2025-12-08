@@ -1,0 +1,56 @@
+name: Deploy to AWS Lambda
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - 'lambda_function.py'
+      - '.github/workflows/deploy.yml'
+  workflow_dispatch: # Permet de lancer manuellement
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          # Si tu as des dépendances externes, crée un requirements.txt
+          # pip install -r requirements.txt -t .
+
+      - name: Create deployment package
+        run: |
+          cd ${{ github.workspace }}
+          zip -r deployment.zip lambda_function.py
+          # Si tu as des dépendances:
+          # zip -r deployment.zip lambda_function.py requirements.txt <autres fichiers>
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: ${{ secrets.AWS_REGION }}
+
+      - name: Deploy to Lambda
+        run: |
+          aws lambda update-function-code \
+            --function-name ${{ secrets.LAMBDA_FUNCTION_NAME }} \
+            --zip-file fileb://deployment.zip \
+            --publish
+
+      - name: Deployment successful
+        run: |
+          echo "✅ Lambda deployed successfully!"
+          echo "Function: ${{ secrets.LAMBDA_FUNCTION_NAME }}"
+          echo "Region: ${{ secrets.AWS_REGION }}"
