@@ -1,7 +1,7 @@
 import json
 import boto3
 import hashlib
-import os
+import uuid
 from datetime import datetime, timedelta
 from decimal import Decimal
 from boto3.dynamodb.conditions import Key, Attr
@@ -74,24 +74,24 @@ def get_availability(event):
         return response(400, {'error': 'Invalid month format. Use YYYY-MM'})
     
     # Get custom availability settings for this month
+    custom_settings = {}
     try:
-        settings_response = table.get_item(
-            Key={'pk': f'SETTINGS#{month}', 'sk': 'AVAILABILITY'}
-        )
+        settings_response = table.get_item(Key={'id': f'SETTINGS#{month}'})
         custom_settings = settings_response.get('Item', {})
     except Exception as e:
         print(f"Error getting settings: {e}")
-        custom_settings = {}
     
-    # Get all bookings for this month
+    # Get all bookings for this month (scan with filter)
+    bookings = {}
     try:
-        bookings_response = table.query(
-            KeyConditionExpression=Key('pk').eq(f'BOOKINGS#{month}')
+        scan_response = table.scan(
+            FilterExpression=Attr('type').eq('booking') & Attr('month').eq(month)
         )
-        bookings = {item['sk']: item for item in bookings_response.get('Items', [])}
+        for item in scan_response.get('Items', []):
+            slot_key = f"{item['date']}#{item['time']}"
+            bookings[slot_key] = item
     except Exception as e:
         print(f"Error getting bookings: {e}")
-        bookings = {}
     
     # Default working hours
     working_hours = custom_settings.get('working_hours', {
@@ -207,29 +207,31 @@ def create_booking(event):
     except Exception as e:
         return response(400, {'error': f'Invalid start_time format: {e}'})
     
-    # Check if slot is available
+    # Check if slot is already booked
     slot_key = f"{date_str}#{time_str}"
-    pk = f"BOOKINGS#{month_str}"
     
     try:
-        existing = table.get_item(Key={'pk': pk, 'sk': slot_key})
-        if 'Item' in existing:
+        # Scan to check if slot exists
+        scan_response = table.scan(
+            FilterExpression=Attr('type').eq('booking') & Attr('date').eq(date_str) & Attr('time').eq(time_str)
+        )
+        if scan_response.get('Items'):
             return response(409, {'error': 'This slot is already booked'})
     except Exception as e:
         print(f"Error checking slot: {e}")
     
-    # Create booking
-    booking_id = f"{date_str}-{time_str}-{email.split('@')[0]}"
+    # Create booking with unique ID
+    booking_id = str(uuid.uuid4())
     created_at = datetime.now().isoformat()
     
     booking = {
-        'pk': pk,
-        'sk': slot_key,
-        'booking_id': booking_id,
+        'id': booking_id,
+        'type': 'booking',
         'name': name,
         'email': email,
         'date': date_str,
         'time': time_str,
+        'month': month_str,
         'start_time': start_time,
         'profile_type': profile_type,
         'offer': offer,
@@ -372,39 +374,39 @@ def get_bookings(event):
     try:
         if month:
             # Get bookings for specific month
-            result = table.query(
-                KeyConditionExpression=Key('pk').eq(f'BOOKINGS#{month}')
+            scan_response = table.scan(
+                FilterExpression=Attr('type').eq('booking') & Attr('month').eq(month)
             )
         else:
-            # Scan all bookings (not ideal for large datasets)
-            result = table.scan(
-                FilterExpression=Attr('pk').begins_with('BOOKINGS#')
+            # Get all bookings
+            scan_response = table.scan(
+                FilterExpression=Attr('type').eq('booking')
             )
         
-        bookings = [decimal_to_python(item) for item in result.get('Items', [])]
+        bookings = [decimal_to_python(item) for item in scan_response.get('Items', [])]
+        # Sort by date and time
+        bookings.sort(key=lambda x: (x.get('date', ''), x.get('time', '')))
         return response(200, {'bookings': bookings})
     except Exception as e:
         print(f"Error getting bookings: {e}")
         return response(500, {'error': 'Failed to get bookings'})
 
 def delete_booking(event):
-    """Delete a booking (admin only) - DELETE /api/admin/bookings/{date}/{time}"""
+    """Delete a booking (admin only) - DELETE /api/admin/bookings/{id}"""
     if not verify_admin(event):
         return response(401, {'error': 'Unauthorized'})
     
+    # Get booking ID from path or query params
     params = event.get('pathParameters', {}) or {}
-    date = params.get('date')  # Format: 2025-12-10
-    time = params.get('time')  # Format: 14:00
+    query_params = event.get('queryStringParameters', {}) or {}
     
-    if not date or not time:
-        return response(400, {'error': 'date and time required'})
+    booking_id = params.get('id') or query_params.get('id')
     
-    month = date[:7]  # 2025-12
-    pk = f"BOOKINGS#{month}"
-    sk = f"{date}#{time}"
+    if not booking_id:
+        return response(400, {'error': 'booking id required'})
     
     try:
-        table.delete_item(Key={'pk': pk, 'sk': sk})
+        table.delete_item(Key={'id': booking_id})
         return response(200, {'success': True})
     except Exception as e:
         print(f"Error deleting booking: {e}")
@@ -444,8 +446,8 @@ def update_availability_settings(event):
     
     # Build settings object
     settings = {
-        'pk': f'SETTINGS#{month}',
-        'sk': 'AVAILABILITY',
+        'id': f'SETTINGS#{month}',
+        'type': 'settings',
         'month': month,
         'updated_at': datetime.now().isoformat()
     }
@@ -479,9 +481,7 @@ def get_availability_settings(event):
         return response(400, {'error': 'month parameter required'})
     
     try:
-        result = table.get_item(
-            Key={'pk': f'SETTINGS#{month}', 'sk': 'AVAILABILITY'}
-        )
+        result = table.get_item(Key={'id': f'SETTINGS#{month}'})
         settings = result.get('Item', {
             'working_hours': {
                 'start': 10,
