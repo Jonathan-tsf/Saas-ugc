@@ -9,7 +9,7 @@ from boto3.dynamodb.conditions import Key, Attr
 # Configuration
 ADMIN_PASSWORD_HASH = hashlib.sha256("SAASPASSWORD123".encode()).hexdigest()
 TABLE_NAME = "demos"
-OWNER_EMAIL = "jonat.tapiero@gmail.com"
+OWNER_EMAIL = "support@bysepia.com"
 
 # AWS Clients
 dynamodb = boto3.resource('dynamodb')
