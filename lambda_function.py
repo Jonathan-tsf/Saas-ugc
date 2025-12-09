@@ -598,3 +598,5 @@ def lambda_handler(event, context):
         return delete_booking(event)
     
     return response(404, {'error': f'Not found: {http_method} {path}'})
+#   T r i g g e r   d e p l o y  
+ 
