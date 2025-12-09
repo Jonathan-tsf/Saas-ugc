@@ -2,12 +2,14 @@ import json
 import boto3
 import hashlib
 import uuid
+import os
 from datetime import datetime, timedelta
 from decimal import Decimal
 from boto3.dynamodb.conditions import Key, Attr
 
-# Configuration
-ADMIN_PASSWORD_HASH = hashlib.sha256("SAASPASSWORD123".encode()).hexdigest()
+# Configuration - Read password from environment variable
+ADMIN_PASSWORD = os.environ.get('ADMIN_PASSWORD', 'SAASPASSWORD123')
+ADMIN_PASSWORD_HASH = hashlib.sha256(ADMIN_PASSWORD.encode()).hexdigest()
 TABLE_NAME = "demos"
 OWNER_EMAIL = "support@bysepia.com"
 
