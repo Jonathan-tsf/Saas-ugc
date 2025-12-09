@@ -120,7 +120,6 @@ curl -X POST "https://och8urskml.execute-api.us-east-1.amazonaws.com/production/
 ```bash
 curl -X POST "https://och8urskml.execute-api.us-east-1.amazonaws.com/production/api/admin/login" \
   -H "Content-Type: application/json" \
-  -d '{"password":"JT14032001!"}'
 ```
 
 ## URLs
@@ -129,5 +128,3 @@ curl -X POST "https://och8urskml.execute-api.us-east-1.amazonaws.com/production/
 - **Site:** http://localhost:3000/fr/booking
 - **Admin:** http://localhost:3000/fr/admin
 
-## Mot de passe Admin
-`JT14032001!`
