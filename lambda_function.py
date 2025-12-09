@@ -581,6 +581,7 @@ def lambda_handler(event, context):
         ('POST', '/api/book-demo'): create_booking,
         ('POST', '/api/contact'): send_contact_email,
         ('POST', '/api/admin/login'): admin_login,
+        ('POST', '/api/admin/auth'): admin_login,  # Support both endpoints
         ('GET', '/api/admin/bookings'): get_bookings,
         ('DELETE', '/api/admin/bookings'): delete_booking,
         ('GET', '/api/admin/settings'): get_availability_settings,
@@ -598,5 +599,3 @@ def lambda_handler(event, context):
         return delete_booking(event)
     
     return response(404, {'error': f'Not found: {http_method} {path}'})
-#   T r i g g e r   d e p l o y  
- 
