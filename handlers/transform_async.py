@@ -23,20 +23,20 @@ TRANSFORMATION_STEPS = [
         'step': 1,
         'name': 'hair',
         'prompts': [
-            "Change hair to elegant wavy blonde highlights, professional look",
-            "Transform hair to sleek dark brunette with subtle layers",
-            "Style hair as modern short pixie cut with copper tones",
-            "Update hair to flowing auburn waves with natural shine"
+            "Change hairstyle completely, new haircut",
+            "Change hairstyle with slight modification, subtle haircut change",
+            "Change hairstyle with moderate modification, noticeable haircut change",
+            "Change hairstyle dramatically, major haircut transformation"
         ]
     },
     {
         'step': 2,
         'name': 'clothing',
         'prompts': [
-            "Dress in professional athletic wear, sporty modern style",
-            "Wear elegant casual business attire, sophisticated look",
-            "Put on trendy streetwear fitness outfit, urban style",
-            "Dress in high-end luxury sportswear, premium aesthetic"
+            "Change to simple solid-colored athletic sportswear, no graphics or patterns, clean professional style, same background",
+            "Change to elegant plain athletic wear, no accessories, no caps, no jewelry, minimalist style, same background",
+            "Change to modern solid athletic outfit, no graphic tees, no ripped jeans, clean style, same background",
+            "Change to premium plain sportswear, no embellishments, no decorations, sophisticated simple style, same background"
         ]
     },
     {
@@ -364,8 +364,13 @@ def continue_transformation(event):
         current_step = int(session.get('current_step', 1))
         next_step = current_step + 1
         
-        # Get the selected variation from S3
-        selected_var_key = f"transform_sessions/{session_id}/step{current_step}_var{selected_index}.png"
+        # Get the selected image from S3
+        # If selected_index is -1, use original image
+        if selected_index == -1:
+            selected_var_key = f"transform_sessions/{session_id}/original.png"
+        else:
+            selected_var_key = f"transform_sessions/{session_id}/step{current_step}_var{selected_index}.png"
+        
         selected_obj = s3.get_object(Bucket=S3_BUCKET, Key=selected_var_key)
         selected_data = selected_obj['Body'].read()
         selected_image = base64.b64encode(selected_data).decode('utf-8')
