@@ -320,6 +320,9 @@ def get_transformation_session(event):
         current_step = session.get('current_step', 1)
         step_config = TRANSFORMATION_STEPS[current_step - 1]
         
+        # Get current step image URL (for "keep original" option)
+        current_image_url = session.get('current_image_url') or session.get('original_image_url')
+        
         return response(200, {
             'success': True,
             'session_id': session_id,
@@ -330,7 +333,8 @@ def get_transformation_session(event):
             'step_name': step_config['name'],
             'total_steps': len(TRANSFORMATION_STEPS),
             'variations': session.get(f'step_{current_step}_variations', []),
-            'selections': session.get('selections', {})
+            'selections': session.get('selections', {}),
+            'current_image_url': current_image_url
         })
         
     except Exception as e:
