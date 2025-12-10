@@ -116,31 +116,69 @@ def call_nano_banana_api(image_base64, prompt):
         raise Exception(f"Image transformation failed: {str(e)}")
 
 
-def generate_transformation_variations(image_base64, step_config):
-    """Generate 4 variations for a transformation step"""
+def generate_transformation_variations(session_id, step_number, image_base64, step_config):
+    """Generate 4 variations for a transformation step - ONE BY ONE with DynamoDB updates"""
     variations = []
     
     for i, prompt in enumerate(step_config['prompts']):
         try:
+            print(f"Generating variation {i+1}/4 for step {step_number}")
             transformed_image = call_nano_banana_api(image_base64, prompt)
-            variations.append({
+            
+            variation_data = {
                 'index': i,
                 'prompt': prompt,
                 'image_base64': transformed_image
-            })
+            }
+            variations.append(variation_data)
+            
+            # Update DynamoDB immediately after each generation
+            update_session_variation(session_id, step_number, i, variation_data)
+            
         except Exception as e:
             print(f"Error generating variation {i}: {e}")
-            variations.append({
+            error_data = {
                 'index': i,
                 'prompt': prompt,
                 'error': str(e)
-            })
+            }
+            variations.append(error_data)
+            update_session_variation(session_id, step_number, i, error_data)
     
     return variations
 
 
+def update_session_variation(session_id, step_number, variation_index, variation_data):
+    """Update a single variation in DynamoDB session"""
+    try:
+        # Store variation image in S3 if present
+        if 'image_base64' in variation_data and not variation_data.get('error'):
+            var_key = f"transform_sessions/{session_id}/step{step_number}_var{variation_index}.png"
+            var_data = base64.b64decode(variation_data['image_base64'])
+            s3.put_object(
+                Bucket=S3_BUCKET,
+                Key=var_key,
+                Body=var_data,
+                ContentType='image/png'
+            )
+            variation_data['image_url'] = f"https://{S3_BUCKET}.s3.amazonaws.com/{var_key}"
+        
+        # Update DynamoDB with the new variation
+        table.update_item(
+            Key={'pk': 'TRANSFORM_SESSION', 'sk': session_id},
+            UpdateExpression=f'SET step_{step_number}_variations[{variation_index}] = :var, updated_at = :updated',
+            ExpressionAttributeValues={
+                ':var': variation_data,
+                ':updated': datetime.now().isoformat()
+            }
+        )
+        print(f"✓ Updated variation {variation_index} for step {step_number}")
+    except Exception as e:
+        print(f"Error updating variation in DynamoDB: {e}")
+
+
 def start_transformation(event):
-    """Start transformation process - POST /api/admin/ambassadors/transform/start"""
+    """Start transformation process - Returns immediately with session_id, generates async"""
     if not verify_admin(event):
         return response(401, {'error': 'Unauthorized'})
     
@@ -159,10 +197,9 @@ def start_transformation(event):
         return response(400, {'error': 'name is required'})
     
     session_id = str(uuid.uuid4())
-    step_config = TRANSFORMATION_STEPS[0]
     
     try:
-        # Store original image in S3 instead of DynamoDB (400KB limit)
+        # Store original image in S3
         original_image_key = f"transform_sessions/{session_id}/original.png"
         image_data = base64.b64decode(image_base64)
         s3.put_object(
@@ -173,22 +210,7 @@ def start_transformation(event):
         )
         original_image_url = f"https://{S3_BUCKET}.s3.amazonaws.com/{original_image_key}"
         
-        variations = generate_transformation_variations(image_base64, step_config)
-        
-        # Store variation images in S3 and replace base64 with URLs
-        for i, var in enumerate(variations):
-            if 'image_base64' in var and not var.get('error'):
-                var_key = f"transform_sessions/{session_id}/step1_var{i}.png"
-                var_data = base64.b64decode(var['image_base64'])
-                s3.put_object(
-                    Bucket=S3_BUCKET,
-                    Key=var_key,
-                    Body=var_data,
-                    ContentType='image/png'
-                )
-                var['image_url'] = f"https://{S3_BUCKET}.s3.amazonaws.com/{var_key}"
-                # Keep base64 for client display but don't store in DB
-        
+        # Create session in DynamoDB with status "generating"
         session = {
             'id': session_id,
             'pk': 'TRANSFORM_SESSION',
