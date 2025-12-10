@@ -23,6 +23,7 @@ table = dynamodb.Table(TABLE_NAME)
 ambassadors_table = dynamodb.Table(AMBASSADORS_TABLE_NAME)
 ses = boto3.client('ses', region_name='us-east-1')
 s3 = boto3.client('s3', region_name='us-east-1')
+lambda_client = boto3.client('lambda', region_name='us-east-1')
 
 # CORS Headers
 CORS_HEADERS = {

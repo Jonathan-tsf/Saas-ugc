@@ -37,6 +37,15 @@ def lambda_handler(event, context):
     """Main Lambda handler - routes requests to appropriate functions"""
     print(f"Event: {json.dumps(event)}")
     
+    # Handle async background task invocations
+    if 'action' in event and event['action'] == 'generate_variations':
+        from handlers.transform_async import generate_step_variations_async
+        session_id = event['session_id']
+        step = event['step']
+        image_base64 = event['image_base64']
+        generate_step_variations_async(session_id, step, image_base64)
+        return {'statusCode': 200, 'body': json.dumps({'success': True})}
+    
     http_method = event.get('httpMethod', '')
     path = event.get('path', '')
     

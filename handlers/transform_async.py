@@ -5,12 +5,13 @@ import json
 import uuid
 import base64
 import requests
+import os
 from datetime import datetime
 from decimal import Decimal
 
 from config import (
     response, decimal_to_python, verify_admin,
-    ambassadors_table, s3, S3_BUCKET, NANO_BANANA_API_KEY, dynamodb
+    ambassadors_table, s3, S3_BUCKET, NANO_BANANA_API_KEY, dynamodb, lambda_client
 )
 
 # Create jobs table reference
@@ -168,8 +169,19 @@ def start_transformation(event):
         
         jobs_table.put_item(Item=session)
         
-        # Start generating variations (this will take time)
-        generate_step_variations_async(session_id, 1, image_base64)
+        # Invoke Lambda asynchronously to generate variations in background
+        payload = {
+            'action': 'generate_variations',
+            'session_id': session_id,
+            'step': 1,
+            'image_base64': image_base64
+        }
+        
+        lambda_client.invoke(
+            FunctionName=os.environ.get('AWS_LAMBDA_FUNCTION_NAME', 'ugc-booking'),
+            InvocationType='Event',  # Asynchronous invocation
+            Payload=json.dumps(payload)
+        )
         
         # Return immediately
         return response(200, {
@@ -412,8 +424,19 @@ def continue_transformation(event):
                 }
             )
             
-            # Start generating next step async
-            generate_step_variations_async(session_id, next_step, selected_image)
+            # Invoke Lambda asynchronously to generate next step variations
+            payload = {
+                'action': 'generate_variations',
+                'session_id': session_id,
+                'step': next_step,
+                'image_base64': selected_image
+            }
+            
+            lambda_client.invoke(
+                FunctionName=os.environ.get('AWS_LAMBDA_FUNCTION_NAME', 'ugc-booking'),
+                InvocationType='Event',
+                Payload=json.dumps(payload)
+            )
             
             return response(200, {
                 'success': True,
