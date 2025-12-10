@@ -210,8 +210,8 @@ def generate_step_variations_async(session_id, step_number, image_base64):
             variation_data = {
                 'index': i,
                 'prompt': prompt,
-                'image_url': image_url,
-                'image_base64': transformed_image  # Keep for client
+                'image_url': image_url
+                # ❌ DO NOT store image_base64 - DynamoDB has 400KB limit
             }
             
             # Update DynamoDB
@@ -338,10 +338,9 @@ def continue_transformation(event):
     
     session_id = body.get('session_id')
     selected_index = body.get('selected_index')
-    selected_image = body.get('selected_image')  # base64
     
-    if not session_id or selected_index is None or not selected_image:
-        return response(400, {'error': 'session_id, selected_index and selected_image are required'})
+    if not session_id or selected_index is None:
+        return response(400, {'error': 'session_id and selected_index are required'})
     
     try:
         result = jobs_table.get_item(Key={'id': session_id})
@@ -353,6 +352,12 @@ def continue_transformation(event):
         current_step = int(session.get('current_step', 1))
         next_step = current_step + 1
         
+        # Get the selected variation from S3
+        selected_var_key = f"transform_sessions/{session_id}/step{current_step}_var{selected_index}.png"
+        selected_obj = s3.get_object(Bucket=S3_BUCKET, Key=selected_var_key)
+        selected_data = selected_obj['Body'].read()
+        selected_image = base64.b64encode(selected_data).decode('utf-8')
+        
         # Save selection
         selections = session.get('selections', {})
         selections[str(current_step)] = {
@@ -360,9 +365,8 @@ def continue_transformation(event):
             'step_name': TRANSFORMATION_STEPS[current_step - 1]['name']
         }
         
-        # Save selected image as current
+        # Save selected image as current (for continuity)
         selected_image_key = f"transform_sessions/{session_id}/step{current_step}_selected.png"
-        selected_data = base64.b64decode(selected_image)
         s3.put_object(
             Bucket=S3_BUCKET,
             Key=selected_image_key,
