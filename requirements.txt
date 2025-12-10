@@ -1,6 +1,5 @@
-# Pas de dépendances externes pour le moment
+# Lambda dependencies
 # boto3 est déjà inclus dans l'environnement Lambda AWS
 
-# Si tu ajoutes des dépendances plus tard, liste-les ici:
-# requests==2.31.0
-# pydantic==2.5.0
+# Required for Nano Banana Pro API calls
+requests==2.31.0
