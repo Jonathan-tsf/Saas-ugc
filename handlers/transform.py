@@ -68,45 +68,49 @@ TRANSFORMATION_STEPS = [
 
 
 def call_nano_banana_api(image_base64, prompt):
-    """Call Nano Banana Pro API for image transformation"""
+    """Call Google Gemini API for image transformation"""
     if not NANO_BANANA_API_KEY:
         raise Exception("NANO_BANANA_API_KEY not configured")
     
-    api_url = "https://api.nanobanana.pro/v1/image/transform"
+    # Use Gemini Pro model for image generation
+    api_url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-3-pro-image-preview:generateContent?key={NANO_BANANA_API_KEY}"
     
     headers = {
-        "Authorization": f"Bearer {NANO_BANANA_API_KEY}",
         "Content-Type": "application/json"
     }
     
     payload = {
-        "model": "gemini-3-pro",
-        "image": image_base64,
-        "prompt": prompt,
-        "num_outputs": 1,
-        "guidance_scale": 7.5,
-        "strength": 0.75
+        "contents": [{
+            "parts": [
+                {"text": prompt},
+                {"inline_data": {"mime_type": "image/jpeg", "data": image_base64}}
+            ]
+        }],
+        "generationConfig": {
+            "responseModalities": ["IMAGE"]
+        }
     }
     
     try:
-        api_response = requests.post(api_url, headers=headers, json=payload, timeout=60)
+        api_response = requests.post(api_url, headers=headers, json=payload, timeout=120)
         
         if not api_response.ok:
-            print(f"Nano Banana API error status: {api_response.status_code}")
-            print(f"Nano Banana API error body: {api_response.text}")
+            print(f"Gemini API error status: {api_response.status_code}")
+            print(f"Gemini API error body: {api_response.text}")
             
         api_response.raise_for_status()
         result = api_response.json()
         
-        if result.get('images') and len(result['images']) > 0:
-            return result['images'][0]
-        elif result.get('image'):
-            return result['image']
-        else:
-            raise Exception("No image in API response")
+        # Extract image from Gemini response format
+        for candidate in result.get('candidates', []):
+            for part in candidate.get('content', {}).get('parts', []):
+                if 'inlineData' in part:
+                    return part['inlineData']['data']
+        
+        raise Exception("No image in API response")
             
     except requests.exceptions.RequestException as e:
-        print(f"Nano Banana API error: {e}")
+        print(f"Gemini API error: {e}")
         if hasattr(e, 'response') and e.response is not None:
              print(f"Response content: {e.response.text}")
         raise Exception(f"Image transformation failed: {str(e)}")

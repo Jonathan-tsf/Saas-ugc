@@ -14,6 +14,7 @@ TABLE_NAME = "demos"
 AMBASSADORS_TABLE_NAME = "ambassadors"
 OWNER_EMAIL = "support@bysepia.com"
 S3_BUCKET = os.environ.get('S3_BUCKET', 'ugc-ambassadors-media')
+# Using Gemini API - variable name kept for compatibility but it's a Gemini API key
 NANO_BANANA_API_KEY = os.environ.get('NANO_BANANA_PRO_API_KEY', os.environ.get('NANO_BANANA_API_KEY', ''))
 
 # AWS Clients
