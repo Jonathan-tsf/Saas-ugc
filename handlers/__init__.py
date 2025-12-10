@@ -50,6 +50,13 @@ from handlers.outfit_generation import (
     generate_outfit_photos_async,
 )
 
+from handlers.showcase_generation import (
+    start_showcase_generation,
+    get_showcase_generation_status,
+    generate_showcase_async,
+    select_showcase_image,
+)
+
 __all__ = [
     # Bookings
     'get_availability',
@@ -88,4 +95,9 @@ __all__ = [
     'get_outfit_generation_status',
     'select_outfit_image',
     'generate_outfit_photos_async',
+    # Showcase Generation
+    'start_showcase_generation',
+    'get_showcase_generation_status',
+    'generate_showcase_async',
+    'select_showcase_image',
 ]

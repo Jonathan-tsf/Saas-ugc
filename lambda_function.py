@@ -50,6 +50,14 @@ from handlers.outfit_generation import (
     generate_outfit_photos_async,
 )
 
+# Import showcase generation handlers
+from handlers.showcase_generation import (
+    start_showcase_generation,
+    get_showcase_generation_status,
+    generate_showcase_async,
+    select_showcase_image,
+)
+
 
 def lambda_handler(event, context):
     """Main Lambda handler - routes requests to appropriate functions"""
@@ -85,6 +93,15 @@ def lambda_handler(event, context):
             profile_url=event['profile_url'],
             outfits=event['outfits'],
             ambassador_name=event['ambassador_name']
+        )
+        return {'statusCode': 200, 'body': json.dumps({'success': True})}
+    
+    # Handle async showcase generation
+    if 'action' in event and event['action'] == 'generate_showcase_photos':
+        generate_showcase_async(
+            ambassador_id=event['ambassador_id'],
+            job_id=event['job_id'],
+            outfit_map=event['outfit_map']
         )
         return {'statusCode': 200, 'body': json.dumps({'success': True})}
     
@@ -137,6 +154,11 @@ def lambda_handler(event, context):
         ('POST', '/api/admin/ambassadors/outfits/generate'): start_outfit_generation,
         ('GET', '/api/admin/ambassadors/outfits/status'): get_outfit_generation_status,
         ('POST', '/api/admin/ambassadors/outfits/select'): select_outfit_image,
+        
+        # Admin showcase generation
+        ('POST', '/api/admin/ambassadors/showcase/generate'): start_showcase_generation,
+        ('GET', '/api/admin/ambassadors/showcase/status'): get_showcase_generation_status,
+        ('POST', '/api/admin/ambassadors/showcase/select'): select_showcase_image,
     }
     
     # Find matching route
