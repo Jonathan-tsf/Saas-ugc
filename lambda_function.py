@@ -42,6 +42,14 @@ from handlers.outfits import (
     get_upload_url as get_outfit_upload_url,
 )
 
+# Import outfit generation handlers
+from handlers.outfit_generation import (
+    start_outfit_generation,
+    get_outfit_generation_status,
+    select_outfit_image,
+    generate_outfit_photos_async,
+)
+
 
 def lambda_handler(event, context):
     """Main Lambda handler - routes requests to appropriate functions"""
@@ -67,6 +75,17 @@ def lambda_handler(event, context):
             image_base64 = event['image_base64']
         
         generate_step_variations_async(session_id, step, image_base64)
+        return {'statusCode': 200, 'body': json.dumps({'success': True})}
+    
+    # Handle async outfit generation
+    if 'action' in event and event['action'] == 'generate_outfit_photos':
+        generate_outfit_photos_async(
+            job_id=event['job_id'],
+            ambassador_id=event['ambassador_id'],
+            profile_url=event['profile_url'],
+            outfits=event['outfits'],
+            ambassador_name=event['ambassador_name']
+        )
         return {'statusCode': 200, 'body': json.dumps({'success': True})}
     
     http_method = event.get('httpMethod', '')
@@ -113,6 +132,11 @@ def lambda_handler(event, context):
         ('GET', '/api/admin/outfits'): get_outfits,
         ('POST', '/api/admin/outfits'): create_outfit,
         ('GET', '/api/admin/outfits/upload-url'): get_outfit_upload_url,
+        
+        # Admin outfit generation
+        ('POST', '/api/admin/ambassadors/outfits/generate'): start_outfit_generation,
+        ('GET', '/api/admin/ambassadors/outfits/status'): get_outfit_generation_status,
+        ('POST', '/api/admin/ambassadors/outfits/select'): select_outfit_image,
     }
     
     # Find matching route

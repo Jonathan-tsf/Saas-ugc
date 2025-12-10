@@ -43,6 +43,13 @@ from handlers.outfits import (
     increment_outfit_count,
 )
 
+from handlers.outfit_generation import (
+    start_outfit_generation,
+    get_outfit_generation_status,
+    select_outfit_image,
+    generate_outfit_photos_async,
+)
+
 __all__ = [
     # Bookings
     'get_availability',
@@ -76,4 +83,9 @@ __all__ = [
     'delete_outfit',
     'get_outfit_upload_url',
     'increment_outfit_count',
+    # Outfit Generation
+    'start_outfit_generation',
+    'get_outfit_generation_status',
+    'select_outfit_image',
+    'generate_outfit_photos_async',
 ]
