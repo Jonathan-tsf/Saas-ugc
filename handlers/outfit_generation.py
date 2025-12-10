@@ -23,8 +23,8 @@ jobs_table = dynamodb.Table('nano_banana_jobs')
 lambda_client = boto3.client('lambda')
 LAMBDA_FUNCTION_NAME = 'saas-ugc'
 
-# Gemini API endpoint for image generation
-GEMINI_API_URL = "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash-exp:generateContent"
+# Gemini 3 Pro Image Preview (Nano Banana Pro) - for high-fidelity outfit transfer
+GEMINI_API_URL = "https://generativelanguage.googleapis.com/v1beta/models/gemini-3-pro-image-preview:generateContent"
 
 
 def get_image_from_s3(image_url):
@@ -48,26 +48,28 @@ def get_image_from_s3(image_url):
 
 
 def generate_outfit_images(profile_image_base64, outfit_image_base64, outfit_description, ambassador_name):
-    """Generate 2 images of the ambassador wearing the outfit using Nano Banana Pro"""
+    """Generate 2 images of the ambassador wearing the outfit using Nano Banana Pro (Gemini 3 Pro Image)"""
     
-    prompt = f"""Create a professional fashion photo of this person wearing this outfit.
+    # Prompt optimized for high-fidelity outfit transfer - preserving the person exactly
+    prompt = f"""Using the provided images, place the outfit from the second image onto the person in the first image.
 
-IMPORTANT INSTRUCTIONS:
-- Keep the person's face, body shape, and features EXACTLY the same as the reference photo
-- Put them in the outfit shown in the second image: {outfit_description}
-- The person should look natural and confident wearing this outfit
-- Generate a full-body or 3/4 body shot in portrait orientation (9:16)
-- Use professional studio lighting
-- Clean, neutral background (solid color or simple gradient)
-- The pose should be natural and flattering for fashion photography
-- Make sure the outfit fits perfectly on the person's body
+CRITICAL REQUIREMENTS:
+- The person's face, skin tone, body shape, hair, and ALL physical features must remain COMPLETELY UNCHANGED
+- ONLY change their clothing to match the outfit shown in the second image
+- Keep the exact same pose and body position from the first image
+- The outfit should fit naturally on the person's body
+- Maintain the same lighting and shadows on the person
+- Use a clean, neutral studio background
 
-Generate ONE high-quality fashion photo."""
+The outfit to apply: {outfit_description}
+
+Generate a professional fashion photo in portrait orientation (9:16 aspect ratio)."""
 
     headers = {
         "Content-Type": "application/json"
     }
     
+    # Payload for Gemini 3 Pro Image Preview with proper config
     payload = {
         "contents": [{
             "parts": [
@@ -88,7 +90,10 @@ Generate ONE high-quality fashion photo."""
         }],
         "generationConfig": {
             "responseModalities": ["TEXT", "IMAGE"],
-            "responseMimeType": "text/plain"
+            "imageConfig": {
+                "aspectRatio": "9:16",
+                "imageSize": "2K"
+            }
         }
     }
     
