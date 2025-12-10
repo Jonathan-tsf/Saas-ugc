@@ -1,0 +1,16 @@
+{
+    "CORSRules": [
+        {
+            "AllowedHeaders": ["*"],
+            "AllowedMethods": ["GET", "PUT", "POST", "DELETE", "HEAD"],
+            "AllowedOrigins": [
+                "http://localhost:3000",
+                "http://localhost:3001",
+                "https://*.vercel.app",
+                "https://ugc-studio.com"
+            ],
+            "ExposeHeaders": ["ETag"],
+            "MaxAgeSeconds": 3000
+        }
+    ]
+}

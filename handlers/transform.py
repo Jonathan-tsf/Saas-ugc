@@ -151,16 +151,41 @@ def start_transformation(event):
     step_config = TRANSFORMATION_STEPS[0]
     
     try:
+        # Store original image in S3 instead of DynamoDB (400KB limit)
+        original_image_key = f"transform_sessions/{session_id}/original.png"
+        image_data = base64.b64decode(image_base64)
+        s3.put_object(
+            Bucket=S3_BUCKET,
+            Key=original_image_key,
+            Body=image_data,
+            ContentType='image/png'
+        )
+        original_image_url = f"https://{S3_BUCKET}.s3.amazonaws.com/{original_image_key}"
+        
         variations = generate_transformation_variations(image_base64, step_config)
+        
+        # Store variation images in S3 and replace base64 with URLs
+        for i, var in enumerate(variations):
+            if 'image_base64' in var and not var.get('error'):
+                var_key = f"transform_sessions/{session_id}/step1_var{i}.png"
+                var_data = base64.b64decode(var['image_base64'])
+                s3.put_object(
+                    Bucket=S3_BUCKET,
+                    Key=var_key,
+                    Body=var_data,
+                    ContentType='image/png'
+                )
+                var['image_url'] = f"https://{S3_BUCKET}.s3.amazonaws.com/{var_key}"
+                # Keep base64 for client display but don't store in DB
         
         session = {
             'id': session_id,
             'pk': 'TRANSFORM_SESSION',
             'sk': session_id,
             'name': name,
-            'original_image': image_base64,
+            'original_image_url': original_image_url,
             'current_step': 1,
-            'current_image': image_base64,
+            'current_image_url': original_image_url,
             'selections': {},
             'created_at': datetime.now().isoformat(),
             'status': 'in_progress'
@@ -194,7 +219,7 @@ def continue_transformation(event):
     
     session_id = body.get('session_id')
     selected_index = body.get('selected_index')
-    selected_image = body.get('selected_image')
+    selected_image = body.get('selected_image')  # base64
     
     if not session_id:
         return response(400, {'error': 'session_id is required'})
@@ -219,10 +244,20 @@ def continue_transformation(event):
         
         next_step = current_step + 1
         
+        # Save selected image to S3
+        selected_image_key = f"transform_sessions/{session_id}/step{current_step}_selected.png"
+        image_data = base64.b64decode(selected_image)
+        s3.put_object(
+            Bucket=S3_BUCKET,
+            Key=selected_image_key,
+            Body=image_data,
+            ContentType='image/png'
+        )
+        selected_image_url = f"https://{S3_BUCKET}.s3.amazonaws.com/{selected_image_key}"
+        
         if next_step > len(TRANSFORMATION_STEPS):
             # All transformations complete
             file_name = f"profile_{session_id}_{datetime.now().strftime('%Y%m%d_%H%M%S')}.png"
-            image_data = base64.b64decode(selected_image)
             s3_key = f"profiles/{file_name}"
             
             s3.put_object(
@@ -236,13 +271,14 @@ def continue_transformation(event):
             
             table.update_item(
                 Key={'pk': 'TRANSFORM_SESSION', 'sk': session_id},
-                UpdateExpression="SET #status = :status, selections = :selections, current_step = :step, final_image_url = :url",
+                UpdateExpression="SET #status = :status, selections = :selections, current_step = :step, final_image_url = :url, current_image_url = :curr_url",
                 ExpressionAttributeNames={'#status': 'status'},
                 ExpressionAttributeValues={
                     ':status': 'completed',
                     ':selections': selections,
                     ':step': next_step,
-                    ':url': file_url
+                    ':url': file_url,
+                    ':curr_url': selected_image_url
                 }
             )
             
@@ -257,12 +293,25 @@ def continue_transformation(event):
         step_config = TRANSFORMATION_STEPS[next_step - 1]
         variations = generate_transformation_variations(selected_image, step_config)
         
+        # Store variation images in S3
+        for i, var in enumerate(variations):
+            if 'image_base64' in var and not var.get('error'):
+                var_key = f"transform_sessions/{session_id}/step{next_step}_var{i}.png"
+                var_data = base64.b64decode(var['image_base64'])
+                s3.put_object(
+                    Bucket=S3_BUCKET,
+                    Key=var_key,
+                    Body=var_data,
+                    ContentType='image/png'
+                )
+                var['image_url'] = f"https://{S3_BUCKET}.s3.amazonaws.com/{var_key}"
+        
         table.update_item(
             Key={'pk': 'TRANSFORM_SESSION', 'sk': session_id},
-            UpdateExpression="SET current_step = :step, current_image = :img, selections = :sel",
+            UpdateExpression="SET current_step = :step, current_image_url = :img, selections = :sel",
             ExpressionAttributeValues={
                 ':step': next_step,
-                ':img': selected_image,
+                ':img': selected_image_url,
                 ':sel': selections
             }
         )
