@@ -298,13 +298,9 @@ Generate a professional photo in portrait orientation (9:16 aspect ratio)."""
     }
     
     try:
+        url = f"{GEMINI_API_URL}?key={NANO_BANANA_API_KEY}"
         data = json.dumps(payload).encode('utf-8')
-        req = urllib.request.Request(
-            f"{GEMINI_API_URL}?key={NANO_BANANA_API_KEY}",
-            data=data,
-            headers=headers,
-            method='POST'
-        )
+        req = urllib.request.Request(url, data=data, headers=headers, method='POST')
         
         with urllib.request.urlopen(req, timeout=180) as api_response:
             result = json.loads(api_response.read().decode('utf-8'))
@@ -317,7 +313,7 @@ Generate a professional photo in portrait orientation (9:16 aspect ratio)."""
                             return part['inlineData']['data']
             
     except urllib.error.HTTPError as e:
-        print(f"Gemini API error: {e.code} - {e.read().decode('utf-8')}")
+        print(f"Gemini API HTTP error: {e.code} - {e.read().decode('utf-8')}")
     except Exception as e:
         print(f"Error generating showcase image: {e}")
     

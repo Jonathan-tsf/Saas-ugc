@@ -98,6 +98,6 @@ __all__ = [
     # Showcase Generation
     'start_showcase_generation',
     'get_showcase_generation_status',
-    'generate_showcase_async',
-    'select_showcase_image',
+    'generate_showcase_photos_async',
+    'select_showcase_photo',
 ]
