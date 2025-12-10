@@ -33,6 +33,16 @@ from handlers.transform_async import (
     finalize_ambassador,
 )
 
+from handlers.outfits import (
+    get_outfits,
+    get_outfit,
+    create_outfit,
+    update_outfit,
+    delete_outfit,
+    get_upload_url as get_outfit_upload_url,
+    increment_outfit_count,
+)
+
 __all__ = [
     # Bookings
     'get_availability',
@@ -58,4 +68,12 @@ __all__ = [
     'continue_transformation',
     'get_transformation_session',
     'finalize_ambassador',
+    # Outfits
+    'get_outfits',
+    'get_outfit',
+    'create_outfit',
+    'update_outfit',
+    'delete_outfit',
+    'get_outfit_upload_url',
+    'increment_outfit_count',
 ]
