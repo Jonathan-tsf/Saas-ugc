@@ -40,9 +40,22 @@ def lambda_handler(event, context):
     # Handle async background task invocations
     if 'action' in event and event['action'] == 'generate_variations':
         from handlers.transform_async import generate_step_variations_async
+        from config import s3, S3_BUCKET
+        import base64
+        
         session_id = event['session_id']
         step = event['step']
-        image_base64 = event['image_base64']
+        
+        # Get image from S3 (to avoid 1MB Lambda payload limit)
+        if 'image_s3_key' in event:
+            image_s3_key = event['image_s3_key']
+            image_obj = s3.get_object(Bucket=S3_BUCKET, Key=image_s3_key)
+            image_data = image_obj['Body'].read()
+            image_base64 = base64.b64encode(image_data).decode('utf-8')
+        else:
+            # Fallback for old format
+            image_base64 = event['image_base64']
+        
         generate_step_variations_async(session_id, step, image_base64)
         return {'statusCode': 200, 'body': json.dumps({'success': True})}
     

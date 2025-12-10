@@ -169,12 +169,13 @@ def start_transformation(event):
         
         jobs_table.put_item(Item=session)
         
+        # Store image in S3 for async Lambda (original is already stored, just reference it)
         # Invoke Lambda asynchronously to generate variations in background
         payload = {
             'action': 'generate_variations',
             'session_id': session_id,
             'step': 1,
-            'image_base64': image_base64
+            'image_s3_key': original_image_key  # Use S3 key instead of base64
         }
         
         lambda_client.invoke(
@@ -433,12 +434,22 @@ def continue_transformation(event):
                 }
             )
             
+            # Store image in S3 for async Lambda to pick up (avoid 1MB Lambda payload limit)
+            temp_image_key = f"transform_sessions/{session_id}/temp_next_step.png"
+            s3.put_object(
+                Bucket=S3_BUCKET,
+                Key=temp_image_key,
+                Body=base64.b64decode(selected_image),
+                ContentType='image/png'
+            )
+            
             # Invoke Lambda asynchronously to generate next step variations
+            # Pass S3 key instead of base64 to avoid payload size limit
             payload = {
                 'action': 'generate_variations',
                 'session_id': session_id,
                 'step': next_step,
-                'image_base64': selected_image
+                'image_s3_key': temp_image_key
             }
             
             lambda_client.invoke(
