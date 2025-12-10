@@ -23,10 +23,10 @@ TRANSFORMATION_STEPS = [
         'step': 1,
         'name': 'hair',
         'prompts': [
-            "Change hairstyle completely, new haircut",
-            "Change hairstyle with slight modification, subtle haircut change",
-            "Change hairstyle with moderate modification, noticeable haircut change",
-            "Change hairstyle dramatically, major haircut transformation"
+            "Change to long flowing hairstyle with slight wave",
+            "Change to medium length layered hairstyle",
+            "Change to shoulder-length straight hairstyle",
+            "Change to long voluminous hairstyle with curls"
         ]
     },
     {
