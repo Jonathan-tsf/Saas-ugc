@@ -8,7 +8,8 @@ import json
 import uuid
 import base64
 import random
-import requests
+import urllib.request
+import urllib.error
 import boto3
 from datetime import datetime
 
@@ -297,15 +298,16 @@ Generate a professional photo in portrait orientation (9:16 aspect ratio)."""
     }
     
     try:
-        api_response = requests.post(
+        data = json.dumps(payload).encode('utf-8')
+        req = urllib.request.Request(
             f"{GEMINI_API_URL}?key={NANO_BANANA_API_KEY}",
+            data=data,
             headers=headers,
-            json=payload,
-            timeout=180
+            method='POST'
         )
         
-        if api_response.status_code == 200:
-            result = api_response.json()
+        with urllib.request.urlopen(req, timeout=180) as api_response:
+            result = json.loads(api_response.read().decode('utf-8'))
             
             if 'candidates' in result and len(result['candidates']) > 0:
                 candidate = result['candidates'][0]
@@ -313,9 +315,9 @@ Generate a professional photo in portrait orientation (9:16 aspect ratio)."""
                     for part in candidate['content']['parts']:
                         if 'inlineData' in part:
                             return part['inlineData']['data']
-        else:
-            print(f"Gemini API error: {api_response.status_code} - {api_response.text}")
             
+    except urllib.error.HTTPError as e:
+        print(f"Gemini API error: {e.code} - {e.read().decode('utf-8')}")
     except Exception as e:
         print(f"Error generating showcase image: {e}")
     

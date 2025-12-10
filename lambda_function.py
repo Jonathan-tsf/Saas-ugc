@@ -54,8 +54,8 @@ from handlers.outfit_generation import (
 from handlers.showcase_generation import (
     start_showcase_generation,
     get_showcase_generation_status,
-    generate_showcase_async,
-    select_showcase_image,
+    generate_showcase_photos_async,
+    select_showcase_photo,
 )
 
 
@@ -98,10 +98,11 @@ def lambda_handler(event, context):
     
     # Handle async showcase generation
     if 'action' in event and event['action'] == 'generate_showcase_photos':
-        generate_showcase_async(
-            ambassador_id=event['ambassador_id'],
+        generate_showcase_photos_async(
             job_id=event['job_id'],
-            outfit_map=event['outfit_map']
+            ambassador_id=event['ambassador_id'],
+            available_categories=event['available_categories'],
+            ambassador_gender=event['ambassador_gender']
         )
         return {'statusCode': 200, 'body': json.dumps({'success': True})}
     
@@ -158,7 +159,7 @@ def lambda_handler(event, context):
         # Admin showcase generation
         ('POST', '/api/admin/ambassadors/showcase/generate'): start_showcase_generation,
         ('GET', '/api/admin/ambassadors/showcase/status'): get_showcase_generation_status,
-        ('POST', '/api/admin/ambassadors/showcase/select'): select_showcase_image,
+        ('POST', '/api/admin/ambassadors/showcase/select'): select_showcase_photo,
     }
     
     # Find matching route

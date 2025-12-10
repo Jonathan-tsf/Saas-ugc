@@ -53,8 +53,8 @@ from handlers.outfit_generation import (
 from handlers.showcase_generation import (
     start_showcase_generation,
     get_showcase_generation_status,
-    generate_showcase_async,
-    select_showcase_image,
+    generate_showcase_photos_async,
+    select_showcase_photo,
 )
 
 __all__ = [
