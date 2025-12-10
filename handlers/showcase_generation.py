@@ -371,12 +371,13 @@ def start_showcase_generation(event):
     job_id = str(uuid.uuid4())
     job = {
         'id': job_id,
+        'job_id': job_id,  # Frontend expects job_id
         'type': 'showcase_generation',
         'ambassador_id': ambassador_id,
         'status': 'processing',
-        'total_photos': NUM_SHOWCASE_PHOTOS,
-        'completed_photos': 0,
-        'current_step': 'generating_scenes',
+        'total_scenes': NUM_SHOWCASE_PHOTOS,
+        'completed_scenes': 0,
+        'current_scene_number': 0,
         'scenes': [],
         'results': [],
         'created_at': datetime.now().isoformat(),
@@ -502,9 +503,9 @@ def generate_showcase_photos_async(job_id, ambassador_id, available_categories, 
         # Update job progress
         jobs_table.update_item(
             Key={'id': job_id},
-            UpdateExpression='SET current_photo = :photo, updated_at = :updated',
+            UpdateExpression='SET current_scene_number = :scene, updated_at = :updated',
             ExpressionAttributeValues={
-                ':photo': i,
+                ':scene': i,
                 ':updated': datetime.now().isoformat()
             }
         )
@@ -520,10 +521,11 @@ def generate_showcase_photos_async(job_id, ambassador_id, available_categories, 
         
         # Create showcase photo entry
         photo_entry = {
-            'id': str(uuid.uuid4()),
-            'scene_index': i,
+            'scene_id': str(uuid.uuid4()),  # Frontend expects scene_id
+            'scene_number': i,
             'scene_description': position,
             'outfit_category': outfit_category,
+            'outfit_image_used': outfit_image_url,  # Frontend expects this
             'generated_images': generated_urls,
             'selected_image': None,
             'status': 'generated' if generated_urls else 'failed',
@@ -534,7 +536,7 @@ def generate_showcase_photos_async(job_id, ambassador_id, available_categories, 
         # Update job results
         jobs_table.update_item(
             Key={'id': job_id},
-            UpdateExpression='SET completed_photos = :completed, results = :results, updated_at = :updated',
+            UpdateExpression='SET completed_scenes = :completed, results = :results, updated_at = :updated',
             ExpressionAttributeValues={
                 ':completed': i,
                 ':results': showcase_photos,
@@ -607,11 +609,11 @@ def select_showcase_photo(event):
         return response(400, {'error': 'Invalid JSON body'})
     
     ambassador_id = body.get('ambassador_id')
-    photo_id = body.get('photo_id')
+    scene_id = body.get('scene_id')  # Frontend sends scene_id
     selected_image = body.get('selected_image')
     
-    if not all([ambassador_id, photo_id, selected_image]):
-        return response(400, {'error': 'ambassador_id, photo_id, and selected_image required'})
+    if not all([ambassador_id, scene_id, selected_image]):
+        return response(400, {'error': 'ambassador_id, scene_id, and selected_image required'})
     
     try:
         result = ambassadors_table.get_item(Key={'id': ambassador_id})
@@ -625,7 +627,7 @@ def select_showcase_photo(event):
         updated = False
         
         for photo in showcase_photos:
-            if photo.get('id') == photo_id:
+            if photo.get('scene_id') == scene_id:  # Match on scene_id
                 photo['selected_image'] = selected_image
                 photo['status'] = 'selected'
                 updated = True
