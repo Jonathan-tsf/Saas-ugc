@@ -70,7 +70,7 @@ TRANSFORMATION_STEPS = [
 def call_nano_banana_api(image_base64, prompt):
     """Call Nano Banana Pro API for image transformation"""
     if not NANO_BANANA_API_KEY:
-        raise Exception("NANO_BANANA_PRO_API_KEY not configured")
+        raise Exception("NANO_BANANA_API_KEY not configured")
     
     api_url = "https://api.nanobanana.pro/v1/image/transform"
     
@@ -90,6 +90,11 @@ def call_nano_banana_api(image_base64, prompt):
     
     try:
         api_response = requests.post(api_url, headers=headers, json=payload, timeout=60)
+        
+        if not api_response.ok:
+            print(f"Nano Banana API error status: {api_response.status_code}")
+            print(f"Nano Banana API error body: {api_response.text}")
+            
         api_response.raise_for_status()
         result = api_response.json()
         
@@ -102,6 +107,8 @@ def call_nano_banana_api(image_base64, prompt):
             
     except requests.exceptions.RequestException as e:
         print(f"Nano Banana API error: {e}")
+        if hasattr(e, 'response') and e.response is not None:
+             print(f"Response content: {e.response.text}")
         raise Exception(f"Image transformation failed: {str(e)}")
 
 
