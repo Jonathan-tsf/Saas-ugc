@@ -43,20 +43,20 @@ TRANSFORMATION_STEPS = [
         'step': 3,
         'name': 'background',
         'prompts': [
-            "Place in modern luxury gym setting with soft lighting",
-            "Set background to outdoor natural park with morning light",
-            "Put in professional photo studio with neutral backdrop",
-            "Place in urban rooftop setting with city skyline"
+            "Transform room style to match outfit, modern minimalist ambiance with warm soft lighting, keep same space type and room",
+            "Change interior style to contemporary chic, adjust lighting mood to complement clothing colors, keep same room",
+            "Update room atmosphere to match clothing vibe, subtle elegant decoration style, same space with refined lighting",
+            "Bold style transformation of current space, dramatic professional lighting enhancement, keep exact same room"
         ]
     },
     {
         'step': 4,
         'name': 'facial_features',
         'prompts': [
-            "Enhance with natural makeup, subtle contouring, fresh look",
-            "Apply glamorous makeup with defined eyes, elegant style",
-            "Add minimal natural makeup, dewy skin, athletic glow",
-            "Style with bold expressive makeup, confident appearance"
+            "Subtly refine facial features, enhance natural bone structure, clearer skin texture, NO makeup, natural look only",
+            "Slightly adjust facial proportions for symmetry, smoother skin, brighter eyes naturally, NO makeup or cosmetics",
+            "Enhance facial definition and jawline subtly, healthy radiant skin, NO makeup, keep natural appearance",
+            "Refine cheekbones and facial contours naturally, clear glowing skin, absolutely NO makeup, authentic look"
         ]
     },
     {
@@ -335,7 +335,9 @@ def get_transformation_session(event):
             'total_steps': len(TRANSFORMATION_STEPS),
             'variations': session.get(f'step_{current_step}_variations', []),
             'selections': session.get('selections', {}),
-            'current_image_url': current_image_url
+            'current_image_url': current_image_url,
+            'original_image_url': session.get('original_image_url'),  # For before/after comparison
+            'final_image_url': session.get('final_image_url')  # Final transformed image
         })
         
     except Exception as e:
