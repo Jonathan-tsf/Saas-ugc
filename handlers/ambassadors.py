@@ -102,9 +102,17 @@ def create_ambassador(event):
         'style': body.get('style', ''),
         'isRecommended': body.get('isRecommended', False),
         'userOwnerId': body.get('userOwnerId', ''),
+        'outfit_ids': body.get('outfit_ids', []),  # List of outfit IDs assigned to this ambassador
         'created_at': created_at,
         'updated_at': created_at
     }
+    
+    # Update outfit counts for newly assigned outfits
+    outfit_ids = body.get('outfit_ids', [])
+    if outfit_ids:
+        from handlers.outfits import increment_outfit_count
+        for outfit_id in outfit_ids:
+            increment_outfit_count(outfit_id, 1)
     
     try:
         ambassadors_table.put_item(Item=ambassador)
@@ -129,6 +137,16 @@ def update_ambassador(event):
     if not ambassador_id:
         return response(400, {'error': 'Ambassador ID required'})
     
+    # Get current ambassador to compare outfit_ids
+    old_outfit_ids = []
+    if 'outfit_ids' in body:
+        try:
+            current = ambassadors_table.get_item(Key={'id': ambassador_id})
+            if current.get('Item'):
+                old_outfit_ids = current['Item'].get('outfit_ids', []) or []
+        except Exception as e:
+            print(f"Warning: Could not get current ambassador: {e}")
+    
     update_parts = []
     expression_values = {}
     expression_names = {}
@@ -136,7 +154,7 @@ def update_ambassador(event):
     updatable_fields = [
         'name', 'description', 'photo_profile', 'photo_list_base_array',
         'video_list_base_array', 'hasBeenChosen', 'gender', 'style',
-        'isRecommended', 'userOwnerId'
+        'isRecommended', 'userOwnerId', 'outfit_ids'
     ]
     
     for field in updatable_fields:
@@ -162,6 +180,23 @@ def update_ambassador(event):
             ExpressionAttributeNames=expression_names,
             ReturnValues="ALL_NEW"
         )
+        
+        # Update outfit counts if outfit_ids changed
+        if 'outfit_ids' in body:
+            new_outfit_ids = body.get('outfit_ids', []) or []
+            old_set = set(old_outfit_ids)
+            new_set = set(new_outfit_ids)
+            
+            added = new_set - old_set
+            removed = old_set - new_set
+            
+            if added or removed:
+                from handlers.outfits import increment_outfit_count
+                for outfit_id in added:
+                    increment_outfit_count(outfit_id, 1)
+                for outfit_id in removed:
+                    increment_outfit_count(outfit_id, -1)
+        
         return response(200, {'success': True, 'ambassador': decimal_to_python(result['Attributes'])})
     except Exception as e:
         print(f"Error updating ambassador: {e}")
@@ -181,6 +216,18 @@ def delete_ambassador(event):
         return response(400, {'error': 'Ambassador ID required'})
     
     try:
+        # Get ambassador to check outfit_ids before deletion
+        result = ambassadors_table.get_item(Key={'id': ambassador_id})
+        ambassador = result.get('Item')
+        
+        if ambassador:
+            # Decrement outfit counts
+            outfit_ids = ambassador.get('outfit_ids', [])
+            if outfit_ids:
+                from handlers.outfits import increment_outfit_count
+                for outfit_id in outfit_ids:
+                    increment_outfit_count(outfit_id, -1)
+        
         ambassadors_table.delete_item(Key={'id': ambassador_id})
         return response(200, {'success': True})
     except Exception as e:

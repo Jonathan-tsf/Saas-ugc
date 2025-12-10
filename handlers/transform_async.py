@@ -489,6 +489,7 @@ def finalize_ambassador(event):
     description = body.get('description', '').strip()
     gender = body.get('gender', 'female')
     style = body.get('style', '').strip()
+    outfit_ids = body.get('outfit_ids', [])  # List of outfit IDs to assign
     
     if not session_id:
         return response(400, {'error': 'session_id is required'})
@@ -513,11 +514,18 @@ def finalize_ambassador(event):
             'style': style,
             'photo_profile': session.get('final_image_url'),
             'original_image_url': session.get('original_image_url'),
+            'outfit_ids': outfit_ids,  # Store assigned outfit IDs
             'created_at': datetime.now().isoformat(),
             'updated_at': datetime.now().isoformat()
         }
         
         ambassadors_table.put_item(Item=ambassador)
+        
+        # Update outfit counts for assigned outfits
+        if outfit_ids:
+            from handlers.outfits import increment_outfit_count
+            for outfit_id in outfit_ids:
+                increment_outfit_count(outfit_id, 1)
         
         # Clean up session (optional)
         # table.delete_item(Key={'pk': 'TRANSFORM_SESSION', 'sk': session_id})

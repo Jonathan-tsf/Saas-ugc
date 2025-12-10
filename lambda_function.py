@@ -32,6 +32,16 @@ from handlers import (
     finalize_ambassador,
 )
 
+# Import outfit handlers
+from handlers.outfits import (
+    get_outfits,
+    get_outfit,
+    create_outfit,
+    update_outfit,
+    delete_outfit,
+    get_upload_url as get_outfit_upload_url,
+)
+
 
 def lambda_handler(event, context):
     """Main Lambda handler - routes requests to appropriate functions"""
@@ -98,6 +108,11 @@ def lambda_handler(event, context):
         ('POST', '/api/admin/ambassadors/transform/continue'): continue_transformation,
         ('GET', '/api/admin/ambassadors/transform/session'): get_transformation_session,
         ('POST', '/api/admin/ambassadors/transform/finalize'): finalize_ambassador,
+        
+        # Admin outfits CRUD
+        ('GET', '/api/admin/outfits'): get_outfits,
+        ('POST', '/api/admin/outfits'): create_outfit,
+        ('GET', '/api/admin/outfits/upload-url'): get_outfit_upload_url,
     }
     
     # Find matching route
@@ -115,5 +130,14 @@ def lambda_handler(event, context):
     
     if http_method == 'DELETE' and path.startswith('/api/admin/ambassadors/'):
         return delete_ambassador(event)
+    
+    # Outfit parameterized routes
+    if path.startswith('/api/admin/outfits/') and path != '/api/admin/outfits/upload-url':
+        if http_method == 'GET':
+            return get_outfit(event)
+        elif http_method == 'PUT':
+            return update_outfit(event)
+        elif http_method == 'DELETE':
+            return delete_outfit(event)
     
     return response(404, {'error': f'Not found: {http_method} {path}'})
