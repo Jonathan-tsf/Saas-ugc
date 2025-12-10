@@ -28,9 +28,8 @@ bedrock_runtime = boto3.client('bedrock-runtime', region_name='us-east-1')
 lambda_client = boto3.client('lambda')
 LAMBDA_FUNCTION_NAME = 'saas-ugc'
 
-# Claude Sonnet 4 model ID (using Claude 3.5 Sonnet v2 as fallback)
-CLAUDE_MODEL_ID = "anthropic.claude-sonnet-4-20250514-v1:0"
-CLAUDE_FALLBACK_MODEL_ID = "anthropic.claude-3-5-sonnet-20241022-v2:0"
+# Claude Sonnet 4 model ID via inference profile
+CLAUDE_MODEL_ID = "us.anthropic.claude-sonnet-4-20250514-v1:0"
 
 # Gemini 3 Pro Image Preview (Nano Banana Pro)
 GEMINI_API_URL = "https://generativelanguage.googleapis.com/v1beta/models/gemini-3-pro-image-preview:generateContent"
@@ -156,9 +155,6 @@ Assure-toi que:
 - Ne rien changer à la tenue de la personne, juste la positionner dans le décor"""
 
     try:
-        # Try Claude Sonnet 4 first, fallback to 3.5 Sonnet v2
-        model_id = CLAUDE_MODEL_ID
-        
         request_body = {
             "anthropic_version": "bedrock-2023-05-31",
             "max_tokens": 4096,
@@ -171,18 +167,10 @@ Assure-toi que:
             ]
         }
         
-        try:
-            api_response = bedrock_runtime.invoke_model(
-                modelId=model_id,
-                body=json.dumps(request_body)
-            )
-        except Exception as e:
-            print(f"Claude Sonnet 4 failed, trying fallback: {e}")
-            model_id = CLAUDE_FALLBACK_MODEL_ID
-            api_response = bedrock_runtime.invoke_model(
-                modelId=model_id,
-                body=json.dumps(request_body)
-            )
+        api_response = bedrock_runtime.invoke_model(
+            modelId=CLAUDE_MODEL_ID,
+            body=json.dumps(request_body)
+        )
         
         response_body = json.loads(api_response['body'].read())
         
