@@ -276,24 +276,22 @@ Generate a professional photo in portrait orientation (9:16 aspect ratio)."""
 
     headers = {"Content-Type": "application/json"}
     
+    # Format correct selon la doc Gemini 3 Pro Image:
+    # https://ai.google.dev/gemini-api/docs/image-generation
     payload = {
         "contents": [{
             "parts": [
                 {"text": prompt},
                 {
-                    "inline_data": {
-                        "mime_type": "image/jpeg",
+                    "inlineData": {
+                        "mimeType": "image/jpeg",
                         "data": outfit_image_base64
                     }
                 }
             ]
         }],
         "generationConfig": {
-            "responseModalities": ["TEXT", "IMAGE"],
-            "imageConfig": {
-                "aspectRatio": "9:16",
-                "imageSize": "2K"
-            }
+            "responseModalities": ["TEXT", "IMAGE"]
         }
     }
     
@@ -302,20 +300,33 @@ Generate a professional photo in portrait orientation (9:16 aspect ratio)."""
         data = json.dumps(payload).encode('utf-8')
         req = urllib.request.Request(url, data=data, headers=headers, method='POST')
         
+        print(f"Calling Gemini API for scene: {scene_description[:50]}...")
+        
         with urllib.request.urlopen(req, timeout=180) as api_response:
             result = json.loads(api_response.read().decode('utf-8'))
+            
+            print(f"Gemini response keys: {result.keys()}")
             
             if 'candidates' in result and len(result['candidates']) > 0:
                 candidate = result['candidates'][0]
                 if 'content' in candidate and 'parts' in candidate['content']:
                     for part in candidate['content']['parts']:
                         if 'inlineData' in part:
+                            print("Found inlineData in response - image generated successfully")
                             return part['inlineData']['data']
+                        elif 'inline_data' in part:
+                            print("Found inline_data in response - image generated successfully")
+                            return part['inline_data']['data']
+            
+            print(f"No image in Gemini response: {json.dumps(result)[:500]}")
             
     except urllib.error.HTTPError as e:
-        print(f"Gemini API HTTP error: {e.code} - {e.read().decode('utf-8')}")
+        error_body = e.read().decode('utf-8') if e.fp else 'No error body'
+        print(f"Gemini API HTTP error: {e.code} - {error_body[:1000]}")
     except Exception as e:
         print(f"Error generating showcase image: {e}")
+        import traceback
+        traceback.print_exc()
     
     return None
 
@@ -428,7 +439,11 @@ def start_showcase_generation(event):
 
 def generate_showcase_photos_async(job_id, ambassador_id, available_categories, ambassador_gender):
     """Background async handler to generate showcase photos"""
-    print(f"Starting async showcase generation for job {job_id}, ambassador {ambassador_id}")
+    print(f"=== STARTING ASYNC SHOWCASE GENERATION ===")
+    print(f"Job ID: {job_id}")
+    print(f"Ambassador ID: {ambassador_id}")
+    print(f"Available categories: {available_categories}")
+    print(f"Gender: {ambassador_gender}")
     
     # Get ambassador for outfit images
     try:
@@ -436,7 +451,9 @@ def generate_showcase_photos_async(job_id, ambassador_id, available_categories, 
         ambassador = result.get('Item')
         if not ambassador:
             raise Exception("Ambassador not found")
+        print(f"Ambassador found: {ambassador.get('name', 'Unknown')}")
     except Exception as e:
+        print(f"ERROR: Failed to get ambassador: {e}")
         jobs_table.update_item(
             Key={'id': job_id},
             UpdateExpression='SET #s = :status, #e = :error, updated_at = :updated',
@@ -450,6 +467,7 @@ def generate_showcase_photos_async(job_id, ambassador_id, available_categories, 
         return
     
     # Step 1: Generate scene descriptions with Claude
+    print("Step 1: Generating scene descriptions with Claude...")
     jobs_table.update_item(
         Key={'id': job_id},
         UpdateExpression='SET current_step = :step, updated_at = :updated',
@@ -459,7 +477,15 @@ def generate_showcase_photos_async(job_id, ambassador_id, available_categories, 
         }
     )
     
-    scenes = generate_scene_descriptions_with_claude(available_categories, ambassador_gender)
+    try:
+        scenes = generate_scene_descriptions_with_claude(available_categories, ambassador_gender)
+        print(f"Claude generated {len(scenes)} scenes")
+    except Exception as e:
+        print(f"ERROR calling Claude: {e}")
+        import traceback
+        traceback.print_exc()
+        scenes = generate_fallback_scenes(available_categories, ambassador_gender)
+        print(f"Using fallback scenes: {len(scenes)} scenes")
     
     # Save scenes to job
     scenes_list = [
@@ -471,6 +497,8 @@ def generate_showcase_photos_async(job_id, ambassador_id, available_categories, 
         for key, scene in scenes.items()
     ]
     
+    print(f"Scenes list prepared: {len(scenes_list)} scenes")
+    
     jobs_table.update_item(
         Key={'id': job_id},
         UpdateExpression='SET scenes = :scenes, current_step = :step, updated_at = :updated',
@@ -481,24 +509,32 @@ def generate_showcase_photos_async(job_id, ambassador_id, available_categories, 
         }
     )
     
+    print("Step 2: Generating images with Gemini 3 Pro (Nano Banana Pro)...")
     # Step 2: Generate images for each scene
     showcase_photos = []
     
     for i, (scene_key, scene_data) in enumerate(scenes.items(), 1):
+        print(f"\n--- Processing scene {i}/{len(scenes)} ---")
         position = scene_data['position']
         outfit_category = scene_data['outfit_category']
+        print(f"Scene: {position[:80]}...")
+        print(f"Outfit category: {outfit_category}")
         
         # Get outfit image for this category
         outfit_image_url = get_outfit_image_for_category(ambassador, outfit_category)
         if not outfit_image_url:
-            print(f"No outfit image for category {outfit_category}, skipping scene {i}")
+            print(f"WARNING: No outfit image for category {outfit_category}, skipping scene {i}")
             continue
+        
+        print(f"Outfit image URL: {outfit_image_url[:100]}...")
         
         # Get base64 of outfit image
         outfit_image_base64 = get_image_from_s3(outfit_image_url)
         if not outfit_image_base64:
-            print(f"Failed to get outfit image, skipping scene {i}")
+            print(f"ERROR: Failed to get outfit image from S3, skipping scene {i}")
             continue
+        
+        print(f"Got outfit image base64, length: {len(outfit_image_base64)}")
         
         # Update job progress
         jobs_table.update_item(
@@ -513,11 +549,17 @@ def generate_showcase_photos_async(job_id, ambassador_id, available_categories, 
         # Generate 2 variations
         generated_urls = []
         for variation in range(2):
+            print(f"Generating variation {variation + 1}/2...")
             image_base64 = generate_showcase_image(outfit_image_base64, position)
             if image_base64:
                 url = save_showcase_image_to_s3(image_base64, ambassador_id, f"{i}_{variation}")
                 if url:
                     generated_urls.append(url)
+                    print(f"Variation {variation + 1} saved: {url}")
+            else:
+                print(f"WARNING: Variation {variation + 1} generation failed")
+        
+        print(f"Generated {len(generated_urls)} images for scene {i}")
         
         # Create showcase photo entry
         photo_entry = {
