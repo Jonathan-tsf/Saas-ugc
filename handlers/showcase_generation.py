@@ -386,13 +386,11 @@ CRITICAL REQUIREMENTS:
 - Only change the BACKGROUND, POSE, and SETTING as described
 - The person MUST be looking directly at the camera
 - Use natural, professional lighting
-- High quality, photo-realistic result
-
-Generate a professional photo in portrait orientation (9:16 aspect ratio)."""
+- High quality, photo-realistic result"""
 
     headers = {"Content-Type": "application/json"}
     
-    # Format correct selon la doc Gemini 3 Pro Image:
+    # Format correct selon la doc Gemini 3 Pro Image Preview (Nano Banana Pro):
     # https://ai.google.dev/gemini-api/docs/image-generation
     payload = {
         "contents": [{
@@ -407,7 +405,11 @@ Generate a professional photo in portrait orientation (9:16 aspect ratio)."""
             ]
         }],
         "generationConfig": {
-            "responseModalities": ["TEXT", "IMAGE"]
+            "responseModalities": ["TEXT", "IMAGE"],
+            "imageConfig": {
+                "aspectRatio": "9:16",
+                "imageSize": "2K"
+            }
         }
     }
     
@@ -416,7 +418,7 @@ Generate a professional photo in portrait orientation (9:16 aspect ratio)."""
         data = json.dumps(payload).encode('utf-8')
         req = urllib.request.Request(url, data=data, headers=headers, method='POST')
         
-        print(f"Calling Gemini API for scene: {scene_description[:50]}...")
+        print(f"Calling Gemini 3 Pro Image (Nano Banana Pro) for scene: {scene_description[:50]}...")
         
         with urllib.request.urlopen(req, timeout=180) as api_response:
             result = json.loads(api_response.read().decode('utf-8'))
@@ -427,6 +429,10 @@ Generate a professional photo in portrait orientation (9:16 aspect ratio)."""
                 candidate = result['candidates'][0]
                 if 'content' in candidate and 'parts' in candidate['content']:
                     for part in candidate['content']['parts']:
+                        # Skip thought images (intermediate reasoning images from Nano Banana Pro)
+                        if part.get('thought'):
+                            print("Skipping thought image...")
+                            continue
                         if 'inlineData' in part:
                             print("Found inlineData in response - image generated successfully")
                             return part['inlineData']['data']
