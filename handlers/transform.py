@@ -77,50 +77,50 @@ TRANSFORMATION_STEPS_MALE = [
         'step': 1,
         'name': 'hair',
         'prompts': [
-            "Transform this man's hair to short clean fade haircut, professional masculine look, keep face identical",
-            "Change hair to textured modern quiff style, sleek dark color, masculine look, keep face identical",
-            "Style hair as classic short business cut, neat and professional man style, keep face identical",
-            "Update hair to trendy undercut with styled top, modern masculine look, keep face identical"
+            "IMPORTANT: This is a MAN. Give him a SHORT MASCULINE HAIRCUT. Transform his hair to a clean high skin fade with very short hair on top (maximum 2 inches), dark brown color. NO long hair. NO feminine styles. Keep his face 100% identical. Professional male athlete look.",
+            "IMPORTANT: This is a MAN. Give him a BUZZ CUT / CREW CUT - extremely short hair all over (less than 1 inch), military style, clean and masculine. NO long hair at all. Keep his face 100% identical. Athletic masculine look.",
+            "IMPORTANT: This is a MAN. Give him a classic SHORT SIDE PART haircut, neat and professional, hair length maximum 3 inches on top, faded sides. Dark hair color. NO long hair. Keep his face 100% identical. Business professional male look.",
+            "IMPORTANT: This is a MAN. Give him a modern TEXTURED CROP haircut, short messy top (2-3 inches max), skin fade on sides. NO long hair. NO curls. Keep his face 100% identical. Trendy young professional male look."
         ]
     },
     {
         'step': 2,
         'name': 'clothing',
         'prompts': [
-            "Dress this man in professional athletic wear, sporty masculine modern style, keep face and hair identical",
-            "Put him in fitted casual business attire, sophisticated man look, keep face and hair identical",
-            "Dress in trendy men's streetwear fitness outfit, urban masculine style, keep face and hair identical",
-            "Wear high-end luxury men's sportswear, premium masculine aesthetic, keep face and hair identical"
+            "Dress this man in fitted black athletic compression shirt and joggers, sporty masculine modern style, keep face and hair EXACTLY identical",
+            "Put him in smart casual polo shirt and chinos, sophisticated professional man look, keep face and hair EXACTLY identical",
+            "Dress in premium men's gym tank top and shorts, athletic masculine fitness style, keep face and hair EXACTLY identical",
+            "Wear fitted henley shirt and dark jeans, casual masculine streetwear look, keep face and hair EXACTLY identical"
         ]
     },
     {
         'step': 3,
         'name': 'background',
         'prompts': [
-            "Place in modern luxury gym setting with dramatic lighting, keep person identical",
-            "Set background to outdoor urban sports setting with morning light, keep person identical",
-            "Put in professional photo studio with neutral backdrop, keep person identical",
-            "Place in urban rooftop setting with city skyline, keep person identical"
+            "Place in modern luxury gym setting with dramatic lighting and weight equipment visible, keep person EXACTLY identical",
+            "Set background to outdoor urban setting with morning golden hour light, keep person EXACTLY identical",
+            "Put in professional photo studio with clean neutral gray backdrop, keep person EXACTLY identical",
+            "Place in modern minimalist indoor space with natural window light, keep person EXACTLY identical"
         ]
     },
     {
         'step': 4,
         'name': 'facial_features',
         'prompts': [
-            "Enhance with natural masculine grooming, clean shaven fresh look, keep face structure identical",
-            "Add well-groomed short beard, defined masculine jawline, keep face structure identical",
-            "Natural masculine look with light stubble, athletic healthy appearance, keep face structure identical",
-            "Clean professional appearance, confident masculine expression, keep face structure identical"
+            "Keep this man clean shaven with clear healthy skin, fresh masculine appearance. Do NOT add beard. Keep face structure 100% identical",
+            "Add short well-groomed stubble beard (3-5 day growth), masculine rugged look. Keep face structure 100% identical",
+            "Add neat trimmed short beard, professional masculine appearance. Keep face structure 100% identical",
+            "Keep natural clean look, healthy clear skin, confident masculine expression. Keep face structure 100% identical"
         ]
     },
     {
         'step': 5,
         'name': 'skin_tone',
         'prompts': [
-            "Adjust skin to slightly sun-kissed warm bronze glow, healthy masculine skin, keep everything else identical",
-            "Refine skin to natural fair tone with healthy undertones, clean look, keep everything else identical",
-            "Enhance skin to natural olive Mediterranean tone, healthy athletic glow, keep everything else identical",
-            "Adjust skin to light golden tan, healthy masculine complexion, keep everything else identical"
+            "Adjust skin to light sun-kissed bronze tan, healthy athletic masculine glow, keep everything else EXACTLY identical",
+            "Keep natural skin tone but enhance with healthy glow, clear complexion, keep everything else EXACTLY identical",
+            "Adjust skin to natural olive Mediterranean tone, healthy warm undertones, keep everything else EXACTLY identical",
+            "Enhance skin to light golden summer tan, healthy athletic look, keep everything else EXACTLY identical"
         ]
     }
 ]
