@@ -351,7 +351,12 @@ def save_showcase_image_to_s3(image_base64, ambassador_id, index):
 
 
 def start_showcase_generation(event):
-    """Start generating showcase photos for an ambassador - POST /api/admin/ambassadors/showcase/generate"""
+    """
+    Start showcase generation - generates 15 scene descriptions with Claude
+    POST /api/admin/ambassadors/showcase/generate
+    
+    Returns immediately with scenes - frontend then calls generate_scene for each scene
+    """
     if not verify_admin(event):
         return response(401, {'error': 'Unauthorized'})
     
@@ -378,105 +383,10 @@ def start_showcase_generation(event):
     if not available_categories:
         return response(400, {'error': 'Ambassador has no validated outfit photos. Please generate and validate outfit photos first.'})
     
-    # Create job
-    job_id = str(uuid.uuid4())
-    job = {
-        'id': job_id,
-        'job_id': job_id,  # Frontend expects job_id
-        'type': 'showcase_generation',
-        'ambassador_id': ambassador_id,
-        'status': 'processing',
-        'total_scenes': NUM_SHOWCASE_PHOTOS,
-        'completed_scenes': 0,
-        'current_scene_number': 0,
-        'scenes': [],
-        'results': [],
-        'created_at': datetime.now().isoformat(),
-        'updated_at': datetime.now().isoformat()
-    }
+    ambassador_gender = ambassador.get('gender', 'male')
     
-    jobs_table.put_item(Item=job)
-    
-    # Clear previous showcase photos
-    try:
-        ambassadors_table.update_item(
-            Key={'id': ambassador_id},
-            UpdateExpression='SET showcase_photos = :empty, updated_at = :updated',
-            ExpressionAttributeValues={
-                ':empty': [],
-                ':updated': datetime.now().isoformat()
-            }
-        )
-    except Exception as e:
-        print(f"Error clearing showcase photos: {e}")
-    
-    # Invoke Lambda async for background processing
-    try:
-        lambda_client.invoke(
-            FunctionName=LAMBDA_FUNCTION_NAME,
-            InvocationType='Event',
-            Payload=json.dumps({
-                'action': 'generate_showcase_photos',
-                'job_id': job_id,
-                'ambassador_id': ambassador_id,
-                'available_categories': available_categories,
-                'ambassador_gender': ambassador.get('gender', 'male')
-            })
-        )
-    except Exception as e:
-        print(f"Error invoking Lambda async: {e}")
-        job['status'] = 'failed'
-        job['error'] = str(e)
-        jobs_table.put_item(Item=job)
-        return response(500, {'error': f'Failed to start generation: {str(e)}'})
-    
-    return response(200, {
-        'success': True,
-        'job_id': job_id,
-        'message': f'Started generating {NUM_SHOWCASE_PHOTOS} showcase photos'
-    })
-
-
-def generate_showcase_photos_async(job_id, ambassador_id, available_categories, ambassador_gender):
-    """Background async handler to generate showcase photos"""
-    print(f"=== STARTING ASYNC SHOWCASE GENERATION ===")
-    print(f"Job ID: {job_id}")
-    print(f"Ambassador ID: {ambassador_id}")
-    print(f"Available categories: {available_categories}")
-    print(f"Gender: {ambassador_gender}")
-    
-    # Get ambassador for outfit images
-    try:
-        result = ambassadors_table.get_item(Key={'id': ambassador_id})
-        ambassador = result.get('Item')
-        if not ambassador:
-            raise Exception("Ambassador not found")
-        print(f"Ambassador found: {ambassador.get('name', 'Unknown')}")
-    except Exception as e:
-        print(f"ERROR: Failed to get ambassador: {e}")
-        jobs_table.update_item(
-            Key={'id': job_id},
-            UpdateExpression='SET #s = :status, #e = :error, updated_at = :updated',
-            ExpressionAttributeNames={'#s': 'status', '#e': 'error'},
-            ExpressionAttributeValues={
-                ':status': 'failed',
-                ':error': f'Failed to get ambassador: {str(e)}',
-                ':updated': datetime.now().isoformat()
-            }
-        )
-        return
-    
-    # Step 1: Generate scene descriptions with Claude
-    print("Step 1: Generating scene descriptions with Claude...")
-    jobs_table.update_item(
-        Key={'id': job_id},
-        UpdateExpression='SET current_step = :step, updated_at = :updated',
-        ExpressionAttributeValues={
-            ':step': 'generating_scenes_with_claude',
-            ':updated': datetime.now().isoformat()
-        }
-    )
-    
+    # Step 1: Generate scene descriptions with Claude (synchronous - takes ~10-15s)
+    print(f"Generating scenes for ambassador {ambassador_id}...")
     try:
         scenes = generate_scene_descriptions_with_claude(available_categories, ambassador_gender)
         print(f"Claude generated {len(scenes)} scenes")
@@ -487,106 +397,163 @@ def generate_showcase_photos_async(job_id, ambassador_id, available_categories, 
         scenes = generate_fallback_scenes(available_categories, ambassador_gender)
         print(f"Using fallback scenes: {len(scenes)} scenes")
     
-    # Save scenes to job
-    scenes_list = [
-        {
-            'key': key,
-            'position': scene['position'],
-            'outfit_category': scene['outfit_category']
-        }
-        for key, scene in scenes.items()
-    ]
-    
-    print(f"Scenes list prepared: {len(scenes_list)} scenes")
-    
-    jobs_table.update_item(
-        Key={'id': job_id},
-        UpdateExpression='SET scenes = :scenes, current_step = :step, updated_at = :updated',
-        ExpressionAttributeValues={
-            ':scenes': scenes_list,
-            ':step': 'generating_images',
-            ':updated': datetime.now().isoformat()
-        }
-    )
-    
-    print("Step 2: Generating images with Gemini 3 Pro (Nano Banana Pro)...")
-    # Step 2: Generate images for each scene
-    showcase_photos = []
-    
-    for i, (scene_key, scene_data) in enumerate(scenes.items(), 1):
-        print(f"\n--- Processing scene {i}/{len(scenes)} ---")
-        position = scene_data['position']
-        outfit_category = scene_data['outfit_category']
-        print(f"Scene: {position[:80]}...")
-        print(f"Outfit category: {outfit_category}")
-        
-        # Get outfit image for this category
-        outfit_image_url = get_outfit_image_for_category(ambassador, outfit_category)
-        if not outfit_image_url:
-            print(f"WARNING: No outfit image for category {outfit_category}, skipping scene {i}")
-            continue
-        
-        print(f"Outfit image URL: {outfit_image_url[:100]}...")
-        
-        # Get base64 of outfit image
-        outfit_image_base64 = get_image_from_s3(outfit_image_url)
-        if not outfit_image_base64:
-            print(f"ERROR: Failed to get outfit image from S3, skipping scene {i}")
-            continue
-        
-        print(f"Got outfit image base64, length: {len(outfit_image_base64)}")
-        
-        # Update job progress
-        jobs_table.update_item(
-            Key={'id': job_id},
-            UpdateExpression='SET current_scene_number = :scene, updated_at = :updated',
-            ExpressionAttributeValues={
-                ':scene': i,
-                ':updated': datetime.now().isoformat()
-            }
-        )
-        
-        # Generate 2 variations
-        generated_urls = []
-        for variation in range(2):
-            print(f"Generating variation {variation + 1}/2...")
-            image_base64 = generate_showcase_image(outfit_image_base64, position)
-            if image_base64:
-                url = save_showcase_image_to_s3(image_base64, ambassador_id, f"{i}_{variation}")
-                if url:
-                    generated_urls.append(url)
-                    print(f"Variation {variation + 1} saved: {url}")
-            else:
-                print(f"WARNING: Variation {variation + 1} generation failed")
-        
-        print(f"Generated {len(generated_urls)} images for scene {i}")
-        
-        # Create showcase photo entry
-        photo_entry = {
-            'scene_id': str(uuid.uuid4()),  # Frontend expects scene_id
+    # Convert scenes to list format
+    scenes_list = []
+    for i, (key, scene) in enumerate(scenes.items(), 1):
+        scene_id = str(uuid.uuid4())
+        scenes_list.append({
+            'scene_id': scene_id,
             'scene_number': i,
-            'scene_description': position,
-            'outfit_category': outfit_category,
-            'outfit_image_used': outfit_image_url,  # Frontend expects this
-            'generated_images': generated_urls,
+            'scene_description': scene['position'],
+            'outfit_category': scene['outfit_category'],
+            'generated_images': [],
             'selected_image': None,
-            'status': 'generated' if generated_urls else 'failed',
-            'created_at': datetime.now().isoformat()
-        }
-        showcase_photos.append(photo_entry)
-        
-        # Update job results
-        jobs_table.update_item(
-            Key={'id': job_id},
-            UpdateExpression='SET completed_scenes = :completed, results = :results, updated_at = :updated',
+            'status': 'pending'
+        })
+    
+    # Create job with scenes
+    job_id = str(uuid.uuid4())
+    job = {
+        'id': job_id,
+        'job_id': job_id,
+        'type': 'showcase_generation',
+        'ambassador_id': ambassador_id,
+        'status': 'scenes_ready',  # Scenes are ready, images not yet generated
+        'total_scenes': NUM_SHOWCASE_PHOTOS,
+        'completed_scenes': 0,
+        'current_scene_number': 0,
+        'scenes': scenes_list,
+        'results': scenes_list,  # Frontend uses results
+        'created_at': datetime.now().isoformat(),
+        'updated_at': datetime.now().isoformat()
+    }
+    
+    jobs_table.put_item(Item=job)
+    
+    # Clear previous showcase photos and save new scenes
+    try:
+        ambassadors_table.update_item(
+            Key={'id': ambassador_id},
+            UpdateExpression='SET showcase_photos = :photos, updated_at = :updated',
             ExpressionAttributeValues={
-                ':completed': i,
-                ':results': showcase_photos,
+                ':photos': scenes_list,
                 ':updated': datetime.now().isoformat()
             }
         )
+    except Exception as e:
+        print(f"Error saving showcase photos: {e}")
     
-    # Save to ambassador
+    # Return job with scenes - frontend will call generate_scene for each
+    return response(200, {
+        'success': True,
+        'job_id': job_id,
+        'status': 'scenes_ready',
+        'total_scenes': NUM_SHOWCASE_PHOTOS,
+        'scenes': scenes_list,
+        'message': f'Generated {len(scenes_list)} scene descriptions. Call /showcase/scene to generate images for each scene.'
+    })
+
+
+def generate_scene(event):
+    """
+    Generate 2 images for a single scene
+    POST /api/admin/ambassadors/showcase/scene
+    
+    Body: { ambassador_id, scene_id, job_id }
+    Returns: { scene with generated_images }
+    """
+    if not verify_admin(event):
+        return response(401, {'error': 'Unauthorized'})
+    
+    try:
+        body = json.loads(event.get('body', '{}'))
+    except:
+        return response(400, {'error': 'Invalid JSON body'})
+    
+    ambassador_id = body.get('ambassador_id')
+    scene_id = body.get('scene_id')
+    job_id = body.get('job_id')
+    
+    if not all([ambassador_id, scene_id]):
+        return response(400, {'error': 'ambassador_id and scene_id required'})
+    
+    # Get ambassador
+    try:
+        result = ambassadors_table.get_item(Key={'id': ambassador_id})
+        ambassador = result.get('Item')
+        if not ambassador:
+            return response(404, {'error': 'Ambassador not found'})
+    except Exception as e:
+        return response(500, {'error': f'Failed to get ambassador: {str(e)}'})
+    
+    # Find the scene in showcase_photos
+    showcase_photos = ambassador.get('showcase_photos', [])
+    scene = None
+    scene_index = -1
+    
+    for i, photo in enumerate(showcase_photos):
+        if photo.get('scene_id') == scene_id:
+            scene = photo
+            scene_index = i
+            break
+    
+    if not scene:
+        return response(404, {'error': 'Scene not found'})
+    
+    # Skip if already generated
+    if scene.get('generated_images') and len(scene.get('generated_images', [])) > 0:
+        return response(200, {
+            'success': True,
+            'scene': decimal_to_python(scene),
+            'message': 'Scene already has generated images'
+        })
+    
+    scene_number = scene.get('scene_number', scene_index + 1)
+    scene_description = scene.get('scene_description', '')
+    outfit_category = scene.get('outfit_category', 'casual')
+    
+    print(f"Generating images for scene {scene_number}: {scene_description[:50]}...")
+    
+    # Get outfit image for this category
+    outfit_image_url = get_outfit_image_for_category(ambassador, outfit_category)
+    if not outfit_image_url:
+        # Try any available category
+        available_categories = get_available_outfit_categories(ambassador)
+        if available_categories:
+            outfit_image_url = get_outfit_image_for_category(ambassador, available_categories[0])
+    
+    if not outfit_image_url:
+        return response(400, {'error': f'No validated outfit image available for category {outfit_category}'})
+    
+    # Get base64 of outfit image
+    outfit_image_base64 = get_image_from_s3(outfit_image_url)
+    if not outfit_image_base64:
+        return response(500, {'error': 'Failed to get outfit image from S3'})
+    
+    print(f"Using outfit image: {outfit_image_url[:80]}...")
+    
+    # Generate 2 variations
+    generated_urls = []
+    for variation in range(2):
+        print(f"Generating variation {variation + 1}/2...")
+        image_base64 = generate_showcase_image(outfit_image_base64, scene_description)
+        if image_base64:
+            url = save_showcase_image_to_s3(image_base64, ambassador_id, f"{scene_number}_{variation}")
+            if url:
+                generated_urls.append(url)
+                print(f"Variation {variation + 1} saved: {url}")
+        else:
+            print(f"WARNING: Variation {variation + 1} generation failed")
+    
+    # Update scene
+    scene['generated_images'] = generated_urls
+    scene['outfit_image_used'] = outfit_image_url
+    scene['status'] = 'generated' if generated_urls else 'failed'
+    scene['generated_at'] = datetime.now().isoformat()
+    
+    # Update ambassador's showcase_photos
+    showcase_photos[scene_index] = scene
+    
     try:
         ambassadors_table.update_item(
             Key={'id': ambassador_id},
@@ -598,20 +565,58 @@ def generate_showcase_photos_async(job_id, ambassador_id, available_categories, 
         )
     except Exception as e:
         print(f"Error updating ambassador showcase photos: {e}")
+        return response(500, {'error': f'Failed to save generated images: {str(e)}'})
     
-    # Mark job as completed
-    jobs_table.update_item(
-        Key={'id': job_id},
-        UpdateExpression='SET #s = :status, current_step = :step, updated_at = :updated',
-        ExpressionAttributeNames={'#s': 'status'},
-        ExpressionAttributeValues={
-            ':status': 'completed',
-            ':step': 'done',
-            ':updated': datetime.now().isoformat()
-        }
-    )
+    # Update job if job_id provided
+    if job_id:
+        try:
+            # Get current job
+            job_result = jobs_table.get_item(Key={'id': job_id})
+            job = job_result.get('Item')
+            
+            if job:
+                job_results = job.get('results', [])
+                # Update the scene in results
+                for i, result in enumerate(job_results):
+                    if result.get('scene_id') == scene_id:
+                        job_results[i] = scene
+                        break
+                
+                # Count completed scenes
+                completed = sum(1 for r in job_results if r.get('generated_images') and len(r.get('generated_images', [])) > 0)
+                
+                jobs_table.update_item(
+                    Key={'id': job_id},
+                    UpdateExpression='SET results = :results, completed_scenes = :completed, updated_at = :updated, #s = :status',
+                    ExpressionAttributeNames={'#s': 'status'},
+                    ExpressionAttributeValues={
+                        ':results': job_results,
+                        ':completed': completed,
+                        ':status': 'completed' if completed >= NUM_SHOWCASE_PHOTOS else 'processing',
+                        ':updated': datetime.now().isoformat()
+                    }
+                )
+        except Exception as e:
+            print(f"Error updating job: {e}")
     
-    print(f"Completed async showcase generation for job {job_id}")
+    print(f"Scene {scene_number} generation complete: {len(generated_urls)} images")
+    
+    return response(200, {
+        'success': True,
+        'scene': decimal_to_python(scene),
+        'generated_count': len(generated_urls)
+    })
+
+
+def generate_showcase_photos_async(job_id, ambassador_id, available_categories, ambassador_gender):
+    """
+    DEPRECATED: This function is kept for backward compatibility.
+    The new architecture uses generate_scene() called per-scene from the frontend.
+    """
+    print(f"WARNING: generate_showcase_photos_async called but is DEPRECATED")
+    print(f"Job ID: {job_id}, Ambassador ID: {ambassador_id}")
+    print("Please use the new scene-by-scene architecture with /showcase/scene endpoint")
+    return
 
 
 def get_showcase_generation_status(event):
