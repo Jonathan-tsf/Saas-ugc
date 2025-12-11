@@ -259,15 +259,14 @@ def get_image_from_s3(image_url):
         return None
 
 
-def generate_showcase_image_replicate(outfit_image_base64, scene_description):
+def start_replicate_prediction(outfit_image_base64, scene_description):
     """
-    Fallback: Generate a showcase image using Replicate's Nano Banana Pro API
-    Used when Gemini API quota is exceeded or fails
+    Start a Replicate prediction and return the prediction ID immediately.
+    Does NOT wait for result - caller must poll for completion.
+    Returns: prediction_id or None on error
     """
-    import time
-    
     if not REPLICATE_API_KEY:
-        print("REPLICATE_API_KEY not configured, cannot use fallback")
+        print("REPLICATE_API_KEY not configured, cannot use Replicate")
         return None
     
     prompt = f"""Using the provided image of a person wearing an outfit, create a new photo of this EXACT same person in the following scene:
@@ -285,8 +284,8 @@ CRITICAL REQUIREMENTS:
 
     headers = {
         "Authorization": f"Bearer {REPLICATE_API_KEY}",
-        "Content-Type": "application/json",
-        "Prefer": "wait"  # Wait for result synchronously (up to 60s)
+        "Content-Type": "application/json"
+        # NO "Prefer: wait" - we want async response
     }
     
     # Build data URI for the image
@@ -304,59 +303,60 @@ CRITICAL REQUIREMENTS:
     }
     
     try:
-        print(f"Calling Replicate API for scene: {scene_description[:50]}...")
+        print(f"Starting Replicate prediction for scene: {scene_description[:50]}...")
         
-        # Create prediction
         data = json.dumps(payload).encode('utf-8')
         req = urllib.request.Request(REPLICATE_API_URL, data=data, headers=headers, method='POST')
         
-        with urllib.request.urlopen(req, timeout=120) as api_response:
+        with urllib.request.urlopen(req, timeout=30) as api_response:
             result = json.loads(api_response.read().decode('utf-8'))
             
-            print(f"Replicate initial response status: {result.get('status')}")
-            
-            # If prediction is completed immediately (Prefer: wait header)
-            if result.get('status') == 'succeeded':
-                output = result.get('output')
-                if output:
-                    return download_image_as_base64(output)
-            
-            # If still processing, poll for result
             prediction_id = result.get('id')
-            if prediction_id:
-                get_url = f"https://api.replicate.com/v1/predictions/{prediction_id}"
-                
-                # Poll for up to 3 minutes
-                for _ in range(36):  # 36 * 5s = 180s = 3 minutes
-                    time.sleep(5)
-                    
-                    get_req = urllib.request.Request(get_url, headers={"Authorization": f"Bearer {REPLICATE_API_KEY}"})
-                    with urllib.request.urlopen(get_req, timeout=30) as poll_response:
-                        poll_result = json.loads(poll_response.read().decode('utf-8'))
-                        status = poll_result.get('status')
-                        
-                        print(f"Replicate prediction status: {status}")
-                        
-                        if status == 'succeeded':
-                            output = poll_result.get('output')
-                            if output:
-                                return download_image_as_base64(output)
-                            break
-                        elif status in ['failed', 'canceled']:
-                            print(f"Replicate prediction failed: {poll_result.get('error')}")
-                            break
+            status = result.get('status')
+            print(f"Replicate prediction started: {prediction_id}, status: {status}")
             
-            print(f"No output from Replicate: {json.dumps(result)[:500]}")
+            return prediction_id
             
     except urllib.error.HTTPError as e:
         error_body = e.read().decode('utf-8') if e.fp else 'No error body'
-        print(f"Replicate API HTTP error: {e.code} - {error_body[:1000]}")
+        print(f"Replicate API HTTP error: {e.code} - {error_body[:500]}")
     except Exception as e:
-        print(f"Error with Replicate fallback: {e}")
-        import traceback
-        traceback.print_exc()
+        print(f"Error starting Replicate prediction: {e}")
     
     return None
+
+
+def check_replicate_prediction(prediction_id):
+    """
+    Check the status of a Replicate prediction.
+    Returns: { status: 'starting'|'processing'|'succeeded'|'failed', output: url_or_none, error: msg_or_none }
+    """
+    if not prediction_id or not REPLICATE_API_KEY:
+        return {'status': 'failed', 'error': 'Invalid prediction_id or missing API key'}
+    
+    try:
+        get_url = f"https://api.replicate.com/v1/predictions/{prediction_id}"
+        headers = {"Authorization": f"Bearer {REPLICATE_API_KEY}"}
+        
+        req = urllib.request.Request(get_url, headers=headers)
+        with urllib.request.urlopen(req, timeout=15) as response:
+            result = json.loads(response.read().decode('utf-8'))
+            
+            status = result.get('status', 'unknown')
+            output = result.get('output')
+            error = result.get('error')
+            
+            print(f"Replicate prediction {prediction_id}: status={status}")
+            
+            return {
+                'status': status,
+                'output': output,
+                'error': error
+            }
+            
+    except Exception as e:
+        print(f"Error checking Replicate prediction: {e}")
+        return {'status': 'error', 'error': str(e)}
 
 
 def download_image_as_base64(url):
@@ -439,18 +439,28 @@ Generate a professional photo in portrait orientation (9:16 aspect ratio)."""
     except urllib.error.HTTPError as e:
         error_body = e.read().decode('utf-8') if e.fp else 'No error body'
         print(f"Gemini API HTTP error: {e.code} - {error_body[:1000]}")
-        # Fallback to Replicate on quota exceeded (429) or other errors
-        print("Attempting fallback to Replicate API...")
-        return generate_showcase_image_replicate(outfit_image_base64, scene_description)
+        
+        # Check if quota exceeded (429) - raise specific exception
+        if e.code == 429:
+            raise QuotaExceededException("Gemini API quota exceeded")
+        
+        # For other HTTP errors, return None (Replicate needs async handling)
+        return None
+        
+    except QuotaExceededException:
+        # Re-raise quota exception to be handled by caller
+        raise
     except Exception as e:
         print(f"Error generating showcase image: {e}")
         import traceback
         traceback.print_exc()
-        # Fallback to Replicate on any error
-        print("Attempting fallback to Replicate API...")
-        return generate_showcase_image_replicate(outfit_image_base64, scene_description)
     
     return None
+
+
+class QuotaExceededException(Exception):
+    """Raised when API quota is exceeded - triggers Replicate async fallback"""
+    pass
 
 
 def save_showcase_image_to_s3(image_base64, ambassador_id, index):
@@ -656,16 +666,72 @@ def generate_scene(event):
     
     # Generate 2 variations
     generated_urls = []
+    replicate_predictions = []  # Store prediction IDs for async processing
+    quota_exceeded = False
+    
     for variation in range(2):
         print(f"Generating variation {variation + 1}/2...")
-        image_base64 = generate_showcase_image(outfit_image_base64, scene_description)
-        if image_base64:
-            url = save_showcase_image_to_s3(image_base64, ambassador_id, f"{scene_number}_{variation}")
-            if url:
-                generated_urls.append(url)
-                print(f"Variation {variation + 1} saved: {url}")
-        else:
-            print(f"WARNING: Variation {variation + 1} generation failed")
+        try:
+            image_base64 = generate_showcase_image(outfit_image_base64, scene_description)
+            if image_base64:
+                url = save_showcase_image_to_s3(image_base64, ambassador_id, f"{scene_number}_{variation}")
+                if url:
+                    generated_urls.append(url)
+                    print(f"Variation {variation + 1} saved: {url}")
+            else:
+                print(f"WARNING: Variation {variation + 1} generation failed")
+        except QuotaExceededException:
+            print("QUOTA EXCEEDED - falling back to Replicate...")
+            quota_exceeded = True
+            
+            # Start Replicate prediction for this variation (async)
+            prediction_id = start_replicate_prediction(outfit_image_base64, scene_description)
+            if prediction_id:
+                replicate_predictions.append({
+                    'prediction_id': prediction_id,
+                    'variation': variation,
+                    'status': 'starting'
+                })
+                print(f"Started Replicate prediction: {prediction_id}")
+    
+    # If we have Replicate predictions pending, return them for polling
+    if replicate_predictions and not generated_urls:
+        # Save prediction info to scene for polling
+        scene['replicate_predictions'] = replicate_predictions
+        scene['outfit_image_used'] = outfit_image_url
+        scene['status'] = 'processing_replicate'
+        scene['generated_at'] = datetime.now().isoformat()
+        
+        # Update ambassador's showcase_photos
+        showcase_photos[scene_index] = scene
+        
+        try:
+            ambassadors_table.update_item(
+                Key={'id': ambassador_id},
+                UpdateExpression='SET showcase_photos = :photos, updated_at = :updated',
+                ExpressionAttributeValues={
+                    ':photos': showcase_photos,
+                    ':updated': datetime.now().isoformat()
+                }
+            )
+        except Exception as e:
+            print(f"Error updating ambassador showcase photos: {e}")
+        
+        return response(202, {
+            'success': True,
+            'status': 'processing_replicate',
+            'scene_id': scene_id,
+            'replicate_predictions': replicate_predictions,
+            'message': 'Gemini quota exceeded. Images being generated via Replicate. Poll /showcase/scene/poll for results.'
+        })
+    
+    # If quota exceeded and no images generated and no Replicate predictions, return error
+    if quota_exceeded and not generated_urls and not replicate_predictions:
+        return response(429, {
+            'error': 'quota_exceeded',
+            'message': 'Gemini API quota exceeded and Replicate fallback unavailable.',
+            'scene_id': scene_id
+        })
     
     # Update scene
     scene['generated_images'] = generated_urls
@@ -826,3 +892,137 @@ def select_showcase_photo(event):
     except Exception as e:
         print(f"Error selecting showcase photo: {e}")
         return response(500, {'error': f'Failed to select photo: {str(e)}'})
+
+
+def poll_scene_replicate(event):
+    """
+    Poll Replicate predictions for a scene and download completed images
+    POST /api/admin/ambassadors/showcase/scene/poll
+    
+    Body: { ambassador_id, scene_id }
+    Returns: { status, generated_images (if complete) }
+    """
+    if not verify_admin(event):
+        return response(401, {'error': 'Unauthorized'})
+    
+    try:
+        body = json.loads(event.get('body', '{}'))
+    except:
+        return response(400, {'error': 'Invalid JSON body'})
+    
+    ambassador_id = body.get('ambassador_id')
+    scene_id = body.get('scene_id')
+    
+    if not all([ambassador_id, scene_id]):
+        return response(400, {'error': 'ambassador_id and scene_id required'})
+    
+    # Get ambassador
+    try:
+        result = ambassadors_table.get_item(Key={'id': ambassador_id})
+        ambassador = result.get('Item')
+        if not ambassador:
+            return response(404, {'error': 'Ambassador not found'})
+    except Exception as e:
+        return response(500, {'error': f'Failed to get ambassador: {str(e)}'})
+    
+    # Find the scene
+    showcase_photos = ambassador.get('showcase_photos', [])
+    scene = None
+    scene_index = -1
+    
+    for i, photo in enumerate(showcase_photos):
+        if photo.get('scene_id') == scene_id:
+            scene = photo
+            scene_index = i
+            break
+    
+    if not scene:
+        return response(404, {'error': 'Scene not found'})
+    
+    # Check if already completed
+    if scene.get('status') == 'generated' and scene.get('generated_images'):
+        return response(200, {
+            'success': True,
+            'status': 'completed',
+            'scene': decimal_to_python(scene)
+        })
+    
+    # Get Replicate predictions
+    replicate_predictions = scene.get('replicate_predictions', [])
+    if not replicate_predictions:
+        return response(200, {
+            'success': True,
+            'status': scene.get('status', 'unknown'),
+            'scene': decimal_to_python(scene),
+            'message': 'No Replicate predictions to poll'
+        })
+    
+    # Check each prediction
+    generated_urls = scene.get('generated_images', [])
+    all_completed = True
+    any_succeeded = False
+    
+    for pred in replicate_predictions:
+        prediction_id = pred.get('prediction_id')
+        if pred.get('status') in ['succeeded', 'failed', 'canceled']:
+            # Already processed
+            if pred.get('status') == 'succeeded':
+                any_succeeded = True
+            continue
+        
+        # Check prediction status
+        check_result = check_replicate_prediction(prediction_id)
+        pred['status'] = check_result.get('status')
+        
+        if check_result.get('status') == 'succeeded':
+            any_succeeded = True
+            output_url = check_result.get('output')
+            if output_url:
+                # Download and save to S3
+                print(f"Downloading completed image from Replicate: {prediction_id}")
+                image_base64 = download_image_as_base64(output_url)
+                if image_base64:
+                    scene_number = scene.get('scene_number', scene_index + 1)
+                    variation = pred.get('variation', 0)
+                    s3_url = save_showcase_image_to_s3(image_base64, ambassador_id, f"{scene_number}_{variation}")
+                    if s3_url:
+                        generated_urls.append(s3_url)
+                        pred['s3_url'] = s3_url
+                        print(f"Saved Replicate image to S3: {s3_url}")
+        elif check_result.get('status') in ['starting', 'processing']:
+            all_completed = False
+        elif check_result.get('status') in ['failed', 'canceled']:
+            pred['error'] = check_result.get('error')
+            print(f"Replicate prediction {prediction_id} failed: {check_result.get('error')}")
+    
+    # Update scene
+    scene['replicate_predictions'] = replicate_predictions
+    scene['generated_images'] = generated_urls
+    
+    if all_completed:
+        scene['status'] = 'generated' if generated_urls else 'failed'
+    else:
+        scene['status'] = 'processing_replicate'
+    
+    # Save to DynamoDB
+    showcase_photos[scene_index] = scene
+    
+    try:
+        ambassadors_table.update_item(
+            Key={'id': ambassador_id},
+            UpdateExpression='SET showcase_photos = :photos, updated_at = :updated',
+            ExpressionAttributeValues={
+                ':photos': showcase_photos,
+                ':updated': datetime.now().isoformat()
+            }
+        )
+    except Exception as e:
+        print(f"Error updating showcase photos: {e}")
+    
+    return response(200, {
+        'success': True,
+        'status': 'completed' if all_completed else 'processing',
+        'all_completed': all_completed,
+        'generated_images': generated_urls,
+        'scene': decimal_to_python(scene)
+    })

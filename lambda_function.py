@@ -56,7 +56,8 @@ from handlers.showcase_generation import (
     get_showcase_generation_status,
     generate_showcase_photos_async,
     select_showcase_photo,
-    generate_scene
+    generate_scene,
+    poll_scene_replicate
 )
 
 
@@ -162,6 +163,7 @@ def lambda_handler(event, context):
         ('GET', '/api/admin/ambassadors/showcase/status'): get_showcase_generation_status,
         ('POST', '/api/admin/ambassadors/showcase/select'): select_showcase_photo,
         ('POST', '/api/admin/ambassadors/showcase/scene'): generate_scene,
+        ('POST', '/api/admin/ambassadors/showcase/scene/poll'): poll_scene_replicate,
     }
     
     # Find matching route
