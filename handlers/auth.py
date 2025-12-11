@@ -402,6 +402,7 @@ def get_user_profile(event):
     Get current user's profile
     GET /api/user/profile
     Requires: Authorization header with access token
+    Supports both Cognito native tokens and OAuth tokens
     """
     try:
         # Verify token and get user info
@@ -411,28 +412,63 @@ def get_user_profile(event):
         
         access_token = auth_header.replace('Bearer ', '')
         
-        # Get user info from Cognito
-        user_info = cognito.get_user(AccessToken=access_token)
-        user_attrs = {attr['Name']: attr['Value'] for attr in user_info.get('UserAttributes', [])}
+        user_id = None
+        user_attrs = {}
+        is_oauth_user = False
         
-        user_id = user_attrs.get('sub')
+        # Try to get user info from Cognito first
+        try:
+            user_info = cognito.get_user(AccessToken=access_token)
+            user_attrs = {attr['Name']: attr['Value'] for attr in user_info.get('UserAttributes', [])}
+            user_id = user_attrs.get('sub')
+        except cognito.exceptions.NotAuthorizedException:
+            # Token might be an OAuth token - try to decode it
+            try:
+                import base64
+                import json
+                
+                # Decode JWT payload (middle part)
+                parts = access_token.split('.')
+                if len(parts) >= 2:
+                    # Add padding if needed
+                    payload = parts[1]
+                    padding = 4 - len(payload) % 4
+                    if padding != 4:
+                        payload += '=' * padding
+                    
+                    decoded = base64.urlsafe_b64decode(payload)
+                    token_data = json.loads(decoded)
+                    
+                    # Extract user_id from token (sub claim)
+                    user_id = token_data.get('sub')
+                    user_attrs = {
+                        'email': token_data.get('email', ''),
+                        'name': token_data.get('name', token_data.get('cognito:username', '')),
+                    }
+                    is_oauth_user = True
+                    print(f"OAuth user detected from token: {user_id}")
+            except Exception as decode_error:
+                print(f"Failed to decode token: {decode_error}")
+                return response(401, {'message': 'Token invalide ou expiré'})
+        
+        if not user_id:
+            return response(401, {'message': 'Impossible de récupérer l\'identifiant utilisateur'})
         
         # Get extended profile from DynamoDB
         db_result = users_table.get_item(Key={'user_id': user_id})
         db_user = db_result.get('Item', {})
         
+        # For OAuth users, prefer DB data; for native users, prefer Cognito data
         return response(200, {
             'user_id': user_id,
-            'email': user_attrs.get('email', ''),
-            'name': user_attrs.get('name', db_user.get('name', '')),
-            'picture': user_attrs.get('picture', db_user.get('picture', '')),
-            'provider': db_user.get('provider', 'email'),
+            'email': user_attrs.get('email', db_user.get('email', '')),
+            'name': db_user.get('name') or user_attrs.get('name', ''),
+            'picture': db_user.get('picture') or user_attrs.get('picture', ''),
+            'provider': db_user.get('provider', 'google' if is_oauth_user else 'email'),
             'created_at': db_user.get('created_at'),
             'updated_at': db_user.get('updated_at'),
         })
         
-    except cognito.exceptions.NotAuthorizedException:
-        return response(401, {'message': 'Token invalide ou expiré'})
     except Exception as e:
         print(f"Get profile error: {e}")
         return response(500, {'message': 'Une erreur est survenue'})
@@ -442,7 +478,7 @@ def update_user_profile(event):
     """
     Update current user's profile
     PUT /api/user/profile
-    Body: { name, picture }
+    Body: { name, picture, user_id (optional for OAuth users) }
     """
     try:
         # Verify token
@@ -451,27 +487,51 @@ def update_user_profile(event):
             return response(401, {'message': 'Token manquant'})
         
         access_token = auth_header.replace('Bearer ', '')
-        
-        # Get user info from Cognito
-        user_info = cognito.get_user(AccessToken=access_token)
-        user_attrs = {attr['Name']: attr['Value'] for attr in user_info.get('UserAttributes', [])}
-        user_id = user_attrs.get('sub')
-        
-        # Parse update data
         body = json.loads(event.get('body', '{}'))
         
-        # Update Cognito attributes
-        cognito_updates = []
-        if 'name' in body:
-            cognito_updates.append({'Name': 'name', 'Value': body['name']})
+        user_id = None
+        is_oauth_user = False
         
-        if cognito_updates:
-            cognito.update_user_attributes(
-                AccessToken=access_token,
-                UserAttributes=cognito_updates,
-            )
+        # Try to get user info from Cognito
+        try:
+            user_info = cognito.get_user(AccessToken=access_token)
+            user_attrs = {attr['Name']: attr['Value'] for attr in user_info.get('UserAttributes', [])}
+            user_id = user_attrs.get('sub')
+            
+            # Check if this is an OAuth user (identities attribute present)
+            identities = user_attrs.get('identities', '')
+            is_oauth_user = 'Google' in identities or 'google' in identities
+            
+            # Update Cognito attributes only for non-OAuth users
+            if not is_oauth_user and 'name' in body:
+                cognito_updates = [{'Name': 'name', 'Value': body['name']}]
+                cognito.update_user_attributes(
+                    AccessToken=access_token,
+                    UserAttributes=cognito_updates,
+                )
+        except cognito.exceptions.NotAuthorizedException:
+            # Token might be an ID token or from OAuth - try to decode it
+            try:
+                # Decode JWT to get user_id
+                import base64
+                parts = access_token.split('.')
+                if len(parts) == 3:
+                    # Add padding if needed
+                    payload = parts[1]
+                    padding = 4 - len(payload) % 4
+                    if padding != 4:
+                        payload += '=' * padding
+                    decoded = json.loads(base64.b64decode(payload))
+                    user_id = decoded.get('sub')
+                    is_oauth_user = True
+            except Exception as decode_error:
+                print(f"Token decode error: {decode_error}")
+                return response(401, {'message': 'Token invalide ou expiré'})
         
-        # Update DynamoDB
+        if not user_id:
+            return response(401, {'message': 'Impossible d\'identifier l\'utilisateur'})
+        
+        # Update DynamoDB (works for all users)
         now = datetime.utcnow().isoformat()
         update_expr = 'SET updated_at = :updated_at'
         expr_values = {':updated_at': now}
