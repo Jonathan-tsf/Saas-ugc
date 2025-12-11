@@ -29,8 +29,8 @@ bedrock_runtime = boto3.client('bedrock-runtime', region_name='us-east-1')
 lambda_client = boto3.client('lambda')
 LAMBDA_FUNCTION_NAME = 'saas-ugc'
 
-# Claude Sonnet 4 model ID via inference profile
-CLAUDE_MODEL_ID = "us.anthropic.claude-sonnet-4-20250514-v1:0"
+# Claude Sonnet 4.5 model ID via inference profile
+CLAUDE_MODEL_ID = "us.anthropic.claude-sonnet-4-5-20250929-v1:0"
 
 # Gemini 3 Pro Image Preview (Nano Banana Pro)
 GEMINI_API_URL = "https://generativelanguage.googleapis.com/v1beta/models/gemini-3-pro-image-preview:generateContent"
@@ -43,40 +43,40 @@ NUM_SHOWCASE_PHOTOS = 15
 
 # Few-shot learning examples for scene descriptions
 FEW_SHOT_EXAMPLES = """
-A. Face cam "TikTok talk", simple et exploitable:
+A. Face cam "TikTok talk" (SEULEMENT pour ces scènes, regard caméra approprié):
 - Assis sur une chaise, face caméra, mains posées sur les cuisses, buste légèrement penché vers l'avant, léger sourire, fond mur blanc ou chambre normale.
-- Assis au bord d'un canapé, regard direct caméra, une main qui bouge légèrement comme s'il expliquait quelque chose, expression calme et sincère.
-- Assis en tailleur sur le canapé, dos droit, mains jointes devant lui, regard sérieux mais détendu vers la caméra, fond salon normal.
+- Assis au bord d'un canapé, une main qui bouge légèrement comme s'il expliquait quelque chose, expression calme et sincère.
 - Debout, face caméra, pieds largeur épaules, mains liées devant le bassin, expression neutre, fond mur simple ou porte.
-- Debout, face caméra, mains derrière le dos, menton légèrement relevé, petit sourire, lumière naturelle venant d'un côté.
 
-B. Scènes avec ordinateur / bureau:
-- Assis à un bureau, laptop ouvert, il regarde la caméra au-dessus de l'écran, mains posées sur le clavier comme s'il s'apprêtait à parler de ce qu'il fait.
-- Assis au bureau, une main sur la souris, l'autre main légèrement levée comme s'il expliquait quelque chose, regard caméra, expression sérieuse.
-- Assis au bureau, penché vers la caméra, coudes sur la table, mains jointes devant sa bouche, regard concentré vers l'objectif.
+B. Scènes avec ordinateur / bureau (REGARD SUR L'ÉCRAN, PAS la caméra):
+- Assis à un bureau, laptop ouvert, il regarde l'écran avec concentration, mains sur le clavier, profil ou trois-quarts.
+- Assis au bureau, une main sur la souris, regard focalisé sur l'écran, expression concentrée.
+- Assis au bureau, penché vers l'écran, une main sur le menton, absorbé par ce qu'il lit.
 
-C. Scènes cuisine / manger / boire:
-- Debout dans une cuisine, appuyé légèrement contre le plan de travail, regarde la caméra, un bol ou une assiette devant lui, expression calme.
-- Assis à une table, fourchette dans une main, il regarde la caméra, la fourchette au-dessus de l'assiette comme s'il s'apprêtait à parler avant de manger.
-- Assis, verre ou shaker à la main, posé sur la table, il tient le verre à mi-hauteur, regarde la caméra avec un air tranquille.
+C. Scènes cuisine / manger / boire (regard naturel sur l'activité):
+- Debout dans une cuisine, regarde les ingrédients qu'il prépare sur le plan de travail, expression concentrée.
+- Assis à une table, regarde son assiette, fourchette à la main, moment naturel du repas.
+- Debout, verse un smoothie dans un verre, regarde ce qu'il fait, lumière naturelle.
 
-D. Debout / bras croisés / positions simples:
-- Debout, bras croisés, face caméra, expression neutre / confiante, fond mur simple.
-- Debout, une main dans la poche, l'autre bras le long du corps, il regarde la caméra calmement, décor salon / couloir.
-- Debout, appuyé contre un mur, une épaule contre le mur, bras le long du corps, regard vers la caméra, expression "cool mais neutre".
+D. Scènes fitness / gym (REGARD SUR L'EXERCICE ou droit devant, PAS la caméra):
+- Debout face à un miroir de salle de sport, regarde son reflet, position de repos entre les séries.
+- Assis sur un banc de musculation, regarde droit devant lui, expression concentrée, repos entre exercices.
+- Debout, étirements, regarde vers le sol ou droit devant, expression calme et focalisée.
+- En position de planche ou exercice au sol, regard vers le sol, concentration sur l'effort.
 
-E. Mode "podcast / interview" sur une chaise:
-- Assis sur une chaise simple, légèrement tourné de côté, mais il tourne la tête vers la caméra, une main qui accompagne légèrement la parole.
-- Assis sur une chaise type bar, pieds sur un repose-pied, dos droit, mains sur les cuisses, regarde la caméra avec un air concentré.
+E. Debout / positions simples (mélange regard caméra et regard naturel):
+- Debout, bras croisés, regarde légèrement sur le côté, expression pensive.
+- Debout, une main dans la poche, regarde par la fenêtre, profil naturel.
+- Debout, appuyé contre un mur, regarde son téléphone dans sa main.
 
-F. Téléphone / scroll (sans selfie, toujours regard caméra):
-- Assis sur un canapé, téléphone dans une main, il tient le téléphone près de lui mais regarde la caméra, comme s'il racontait ce qu'il regarde.
-- Debout, téléphone dans une main le long du corps, l'autre main esquisse un petit geste explicatif, regarde la caméra, expression neutre.
+F. Téléphone / scroll (regard sur le téléphone):
+- Assis sur un canapé, téléphone dans les mains, regarde l'écran, expression concentrée.
+- Debout, téléphone dans une main, tape un message, regard sur l'écran.
 
-G. Quelques scènes "lifestyle + sérieux" bien TikTok-compatibles:
-- Assis dans le salon, dos légèrement arrondi, coudes sur les cuisses, mains jointes, il regarde la caméra comme s'il commençait une confession.
-- Debout dans la cuisine, bras croisés, appuyé sur le plan de travail, regard sérieux vers la caméra, ambiance "je parle argent / nutrition / business".
-- Assis à un bureau avec un carnet ouvert, stylo dans la main, il regarde la caméra avec un air concentré.
+G. Scènes lifestyle naturelles:
+- Assis dans le salon, lit un livre ou magazine, regard sur les pages.
+- Debout près d'une fenêtre, regarde dehors, profil pensif, lumière naturelle sur le visage.
+- Assis à un bureau avec un carnet, écrit quelque chose, regard sur le carnet.
 """
 
 
@@ -120,13 +120,21 @@ def generate_scene_descriptions_with_claude(available_categories, ambassador_gen
 Tu dois générer exactement 15 descriptions de scènes pour des photos d'ambassadeurs UGC.
 
 RÈGLES CRITIQUES:
-1. Chaque scène doit TOUJOURS avoir un regard caméra
-2. PAS de selfie (la caméra filme, pas de téléphone tenu pour se prendre en photo)
-3. PAS d'expressions exagérées (pas de surprise, colère, etc.)
-4. Expressions autorisées: neutre, léger sourire, concentré, calme, sérieux mais détendu
-5. La tenue doit être cohérente avec le décor (pas de sport dans une bibliothèque)
-6. Tu ne peux utiliser QUE ces catégories de tenues: {categories_str}
-7. Répartis équitablement les catégories sur les 15 photos
+1. Le regard caméra est UNIQUEMENT pour les scènes "face cam TikTok talk" (max 4-5 scènes sur 15)
+2. Pour les autres scènes: regard NATUREL sur l'activité (écran d'ordi, téléphone, livre, exercice, nourriture, etc.)
+3. PAS de selfie (la caméra filme, pas de téléphone tenu pour se prendre en photo)
+4. PAS d'expressions exagérées (pas de surprise, colère, etc.)
+5. Expressions autorisées: neutre, léger sourire, concentré, calme, sérieux, pensif
+6. La tenue doit être cohérente avec le décor (fitness pour la gym, casual pour la maison, etc.)
+7. Tu ne peux utiliser QUE ces catégories de tenues: {categories_str}
+8. Répartis équitablement les catégories sur les 15 photos
+
+RÈGLE ABSOLUE - ZÉRO TEXTE:
+- AUCUN texte visible dans la scène (pas de marques, pas de logos, pas d'écritures)
+- Pas de valeurs sur les poids de gym (haltères sans chiffres)
+- Pas de marques sur les vêtements, équipements, appareils
+- Pas de texte sur les écrans d'ordinateur ou téléphone
+- Environnement complètement neutre sans aucune inscription
 
 La personne est {gender_article}.
 
@@ -139,10 +147,14 @@ Catégories de tenues disponibles: {categories_str}
 Exemples de scènes inspirantes (few-shot learning):
 {FEW_SHOT_EXAMPLES}
 
+DISTRIBUTION DU REGARD (sur 15 photos):
+- 4-5 photos: regard caméra (scènes "TikTok talk" face cam uniquement)
+- 10-11 photos: regard naturel sur l'activité (écran, exercice, livre, téléphone, fenêtre, etc.)
+
 Réponds UNIQUEMENT avec un JSON valide au format suivant (sans markdown, sans ```json, juste le JSON pur):
 {{
     "picture_1": {{
-        "position": "Description détaillée de la scène, pose, décor, expression. {gender_pronoun.capitalize()} regarde la caméra...",
+        "position": "Description détaillée de la scène, pose, décor, expression, direction du regard...",
         "outfit_category": "casual"
     }},
     "picture_2": {{
@@ -153,10 +165,10 @@ Réponds UNIQUEMENT avec un JSON valide au format suivant (sans markdown, sans `
 }}
 
 Assure-toi que:
-- Chaque description mentionne explicitement "regard caméra" ou "{gender_pronoun} regarde la caméra"
+- ZÉRO texte, marque, logo, chiffre visible dans AUCUNE scène
+- Le regard est approprié à l'activité (pas de regard caméra quand on travaille sur un ordi!)
 - La catégorie de tenue est cohérente avec le décor de la scène
-- Les scènes sont variées (bureau, cuisine, salon, debout, assis, etc.)
-- Ne rien changer à la tenue de la personne, juste la positionner dans le décor"""
+- Les scènes sont variées (bureau, cuisine, salon, gym, debout, assis, etc.)"""
 
     try:
         request_body = {
@@ -278,9 +290,16 @@ CRITICAL REQUIREMENTS:
 - The outfit they are wearing must remain EXACTLY the same as in the reference image
 - DO NOT change anything about the person or their clothing
 - Only change the BACKGROUND, POSE, and SETTING as described
-- The person MUST be looking directly at the camera
+- Follow the gaze direction specified in the scene description (NOT always at camera)
 - Use natural, professional lighting
-- High quality, photo-realistic result"""
+- High quality, photo-realistic result
+
+ABSOLUTE RULE - ZERO TEXT:
+- NO text anywhere in the image (no brands, no logos, no writing)
+- NO numbers on gym weights or equipment (blank weights only)
+- NO brand names on clothes, devices, or any objects
+- NO text on screens (blank or abstract colors only)
+- Completely clean, text-free environment"""
 
     headers = {
         "Authorization": f"Bearer {REPLICATE_API_KEY}",
@@ -384,9 +403,16 @@ CRITICAL REQUIREMENTS:
 - The outfit they are wearing must remain EXACTLY the same as in the reference image
 - DO NOT change anything about the person or their clothing
 - Only change the BACKGROUND, POSE, and SETTING as described
-- The person MUST be looking directly at the camera
+- Follow the gaze direction specified in the scene description (NOT always at camera)
 - Use natural, professional lighting
-- High quality, photo-realistic result"""
+- High quality, photo-realistic result
+
+ABSOLUTE RULE - ZERO TEXT:
+- NO text anywhere in the image (no brands, no logos, no writing)
+- NO numbers on gym weights or equipment (blank weights only)
+- NO brand names on clothes, devices, or any objects
+- NO text on computer screens or phones (screens should be blank or show abstract colors)
+- Completely clean, text-free environment"""
 
     headers = {"Content-Type": "application/json"}
     
