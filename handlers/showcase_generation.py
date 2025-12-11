@@ -620,11 +620,15 @@ def start_showcase_generation(event):
 
 def generate_scene(event):
     """
-    Generate 2 images for a single scene
+    Generate 2 images for a single scene - ASYNC VERSION
     POST /api/admin/ambassadors/showcase/scene
     
-    Body: { ambassador_id, scene_id, job_id }
-    Returns: { scene with generated_images }
+    This function now works asynchronously:
+    1. If called from API Gateway: marks scene as 'processing' and invokes Lambda async, returns immediately
+    2. If called with is_async=True (from Lambda invoke): does the actual generation work
+    
+    Body: { ambassador_id, scene_id, job_id, is_async? }
+    Returns: { status: 'processing', scene_id } immediately, or full result if async
     """
     if not verify_admin(event):
         return response(401, {'error': 'Unauthorized'})
@@ -637,6 +641,7 @@ def generate_scene(event):
     ambassador_id = body.get('ambassador_id')
     scene_id = body.get('scene_id')
     job_id = body.get('job_id')
+    is_async = body.get('is_async', False)  # True when called from Lambda invoke
     
     if not all([ambassador_id, scene_id]):
         return response(400, {'error': 'ambassador_id and scene_id required'})
@@ -664,7 +669,7 @@ def generate_scene(event):
     if not scene:
         return response(404, {'error': 'Scene not found'})
     
-    # Skip if already generated
+    # If already generated, return the result
     if scene.get('generated_images') and len(scene.get('generated_images', [])) > 0:
         return response(200, {
             'success': True,
@@ -672,6 +677,69 @@ def generate_scene(event):
             'message': 'Scene already has generated images'
         })
     
+    # If currently processing, return processing status
+    if scene.get('status') == 'processing' and not is_async:
+        return response(202, {
+            'success': True,
+            'status': 'processing',
+            'scene_id': scene_id,
+            'message': 'Scene generation in progress. Poll /showcase/scene/poll for results.'
+        })
+    
+    # If this is a synchronous call from API Gateway, start async processing
+    if not is_async:
+        # Mark scene as processing
+        scene['status'] = 'processing'
+        scene['processing_started_at'] = datetime.now().isoformat()
+        showcase_photos[scene_index] = scene
+        
+        try:
+            ambassadors_table.update_item(
+                Key={'id': ambassador_id},
+                UpdateExpression='SET showcase_photos = :photos, updated_at = :updated',
+                ExpressionAttributeValues={
+                    ':photos': showcase_photos,
+                    ':updated': datetime.now().isoformat()
+                }
+            )
+        except Exception as e:
+            print(f"Error marking scene as processing: {e}")
+        
+        # Invoke Lambda asynchronously
+        try:
+            lambda_client.invoke(
+                FunctionName=LAMBDA_FUNCTION_NAME,
+                InvocationType='Event',  # Async invocation
+                Payload=json.dumps({
+                    'action': 'generate_scene_async',
+                    'ambassador_id': ambassador_id,
+                    'scene_id': scene_id,
+                    'job_id': job_id
+                })
+            )
+            print(f"Async Lambda invoked for scene {scene_id}")
+        except Exception as e:
+            print(f"Error invoking async Lambda: {e}")
+            # Mark scene as failed
+            scene['status'] = 'failed'
+            scene['error'] = str(e)
+            showcase_photos[scene_index] = scene
+            ambassadors_table.update_item(
+                Key={'id': ambassador_id},
+                UpdateExpression='SET showcase_photos = :photos',
+                ExpressionAttributeValues={':photos': showcase_photos}
+            )
+            return response(500, {'error': f'Failed to start async generation: {str(e)}'})
+        
+        # Return immediately with processing status
+        return response(202, {
+            'success': True,
+            'status': 'processing',
+            'scene_id': scene_id,
+            'message': 'Scene generation started. Poll /showcase/scene/poll for results.'
+        })
+    
+    # ===== ASYNC EXECUTION: Actually generate the images =====
     scene_number = scene.get('scene_number', scene_index + 1)
     scene_description = scene.get('scene_description', '')
     outfit_category = scene.get('outfit_category', 'casual')
@@ -687,11 +755,28 @@ def generate_scene(event):
             outfit_image_url = get_outfit_image_for_category(ambassador, available_categories[0])
     
     if not outfit_image_url:
+        # Mark scene as failed
+        scene['status'] = 'failed'
+        scene['error'] = f'No validated outfit image available for category {outfit_category}'
+        showcase_photos[scene_index] = scene
+        ambassadors_table.update_item(
+            Key={'id': ambassador_id},
+            UpdateExpression='SET showcase_photos = :photos',
+            ExpressionAttributeValues={':photos': showcase_photos}
+        )
         return response(400, {'error': f'No validated outfit image available for category {outfit_category}'})
     
     # Get base64 of outfit image
     outfit_image_base64 = get_image_from_s3(outfit_image_url)
     if not outfit_image_base64:
+        scene['status'] = 'failed'
+        scene['error'] = 'Failed to get outfit image from S3'
+        showcase_photos[scene_index] = scene
+        ambassadors_table.update_item(
+            Key={'id': ambassador_id},
+            UpdateExpression='SET showcase_photos = :photos',
+            ExpressionAttributeValues={':photos': showcase_photos}
+        )
         return response(500, {'error': 'Failed to get outfit image from S3'})
     
     print(f"Using outfit image: {outfit_image_url[:80]}...")
@@ -928,7 +1013,7 @@ def select_showcase_photo(event):
 
 def poll_scene_replicate(event):
     """
-    Poll Replicate predictions for a scene and download completed images
+    Poll scene generation status (works for both Gemini async and Replicate fallback)
     POST /api/admin/ambassadors/showcase/scene/poll
     
     Body: { ambassador_id, scene_id }
@@ -971,8 +1056,47 @@ def poll_scene_replicate(event):
     if not scene:
         return response(404, {'error': 'Scene not found'})
     
-    # Check if already completed
-    if scene.get('status') == 'generated' and scene.get('generated_images'):
+    current_status = scene.get('status', 'unknown')
+    
+    # Check if already completed (generated via Gemini or Replicate)
+    if current_status == 'generated' and scene.get('generated_images'):
+        return response(200, {
+            'success': True,
+            'status': 'completed',
+            'all_completed': True,
+            'generated_images': scene.get('generated_images', []),
+            'scene': decimal_to_python(scene)
+        })
+    
+    # Check if failed
+    if current_status == 'failed':
+        return response(200, {
+            'success': False,
+            'status': 'failed',
+            'all_completed': True,
+            'error': scene.get('error', 'Generation failed'),
+            'scene': decimal_to_python(scene)
+        })
+    
+    # If still processing (Gemini async), return processing status
+    if current_status == 'processing':
+        return response(200, {
+            'success': True,
+            'status': 'processing',
+            'all_completed': False,
+            'message': 'Scene generation in progress (Gemini)',
+            'scene': decimal_to_python(scene)
+        })
+    
+    # Check if we're processing Replicate predictions
+    if current_status != 'processing_replicate':
+        return response(200, {
+            'success': True,
+            'status': current_status,
+            'all_completed': current_status in ['generated', 'failed', 'selected'],
+            'scene': decimal_to_python(scene),
+            'message': f'Scene status: {current_status}'
+        })
         return response(200, {
             'success': True,
             'status': 'completed',

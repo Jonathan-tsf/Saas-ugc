@@ -108,6 +108,21 @@ def lambda_handler(event, context):
         )
         return {'statusCode': 200, 'body': json.dumps({'success': True})}
     
+    # Handle async scene generation (new pattern)
+    if 'action' in event and event['action'] == 'generate_scene_async':
+        # Build a fake event for generate_scene with is_async=True
+        fake_event = {
+            'body': json.dumps({
+                'ambassador_id': event['ambassador_id'],
+                'scene_id': event['scene_id'],
+                'job_id': event.get('job_id'),
+                'is_async': True
+            }),
+            'headers': {'Authorization': 'Bearer internal-async-call'}  # Skip auth for internal calls
+        }
+        result = generate_scene(fake_event)
+        print(f"Async scene generation result: {result}")
+        return result
     http_method = event.get('httpMethod', '')
     path = event.get('path', '')
     

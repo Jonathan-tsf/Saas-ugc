@@ -59,6 +59,8 @@ def decimal_to_python(obj):
         return obj
 
 
+
+
 def verify_admin(event):
     """Verify admin password from Authorization header"""
     headers = event.get('headers', {}) or {}
@@ -68,4 +70,10 @@ def verify_admin(event):
         return False
     
     token = auth[7:]
+    
+    # Allow internal async calls (from Lambda invoke)
+    if token == 'internal-async-call':
+        return True
+    
     return hashlib.sha256(token.encode()).hexdigest() == ADMIN_PASSWORD_HASH
+
