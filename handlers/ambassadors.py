@@ -279,23 +279,53 @@ def get_upload_url(event):
 
 
 def get_public_ambassadors(event):
-    """Get public ambassadors (for frontend) - GET /api/ambassadors"""
+    """Get public ambassadors (for frontend) - GET /api/ambassadors
+    
+    Returns ambassadors that are:
+    - Recommended OR hasBeenChosen
+    - Optionally filtered by gender/style
+    - Includes showcase_photos for vitrine display
+    """
     params = event.get('queryStringParameters', {}) or {}
     
     try:
-        filter_expression = Attr('isRecommended').eq(True) | Attr('hasBeenChosen').eq(True)
+        # Get all ambassadors first, then filter
+        scan_response = ambassadors_table.scan()
+        all_ambassadors = [decimal_to_python(item) for item in scan_response.get('Items', [])]
         
-        if params.get('gender'):
-            filter_expression = filter_expression & Attr('gender').eq(params['gender'])
-        
-        if params.get('style'):
-            filter_expression = filter_expression & Attr('style').eq(params['style'])
-        
-        scan_response = ambassadors_table.scan(FilterExpression=filter_expression)
-        ambassadors = [decimal_to_python(item) for item in scan_response.get('Items', [])]
+        # Filter by isRecommended OR hasBeenChosen OR has selected showcase photos
+        ambassadors = []
+        for amb in all_ambassadors:
+            # Check if has selected showcase photos
+            showcase_photos = amb.get('showcase_photos', [])
+            has_selected_showcase = any(p.get('selected_image') for p in showcase_photos)
+            
+            # Include if recommended, chosen, or has showcase photos
+            if amb.get('isRecommended') or amb.get('hasBeenChosen') or has_selected_showcase:
+                # Apply additional filters if provided
+                if params.get('gender') and amb.get('gender') != params['gender']:
+                    continue
+                if params.get('style') and amb.get('style') != params['style']:
+                    continue
+                ambassadors.append(amb)
         
         public_ambassadors = []
         for amb in ambassadors:
+            # Filter showcase_photos to only include selected ones for public API
+            showcase_photos = amb.get('showcase_photos', [])
+            public_showcase = [
+                {
+                    'scene_id': p.get('scene_id'),
+                    'scene_number': p.get('scene_number'),
+                    'scene_description': p.get('scene_description'),
+                    'outfit_category': p.get('outfit_category'),
+                    'selected_image': p.get('selected_image'),
+                    'status': p.get('status')
+                }
+                for p in showcase_photos
+                if p.get('selected_image')  # Only include photos with selected images
+            ]
+            
             public_ambassadors.append({
                 'id': amb.get('id'),
                 'name': amb.get('name'),
@@ -305,7 +335,8 @@ def get_public_ambassadors(event):
                 'video_list_base_array': amb.get('video_list_base_array', []),
                 'gender': amb.get('gender'),
                 'style': amb.get('style'),
-                'isRecommended': amb.get('isRecommended')
+                'isRecommended': amb.get('isRecommended'),
+                'showcase_photos': public_showcase  # Include showcase photos!
             })
         
         return response(200, {'ambassadors': public_ambassadors})
