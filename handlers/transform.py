@@ -362,6 +362,7 @@ def start_transformation(event):
         original_image_url = f"https://{S3_BUCKET}.s3.amazonaws.com/{original_image_key}"
         
         # Create session in DynamoDB with status "generating" and gender
+        # Initialize step_1_variations as empty list (will be filled by generate function)
         session = {
             'id': session_id,
             'pk': 'TRANSFORM_SESSION',
@@ -372,19 +373,41 @@ def start_transformation(event):
             'current_step': 1,
             'current_image_url': original_image_url,
             'selections': {},
+            'step_1_variations': [None, None, None, None],  # Pre-allocate for updates
             'created_at': datetime.now().isoformat(),
-            'status': 'in_progress'
+            'status': 'generating'  # Start with 'generating' status
         }
         
         table.put_item(Item=session)
+        
+        # Generate variations (this updates DynamoDB as each one completes)
+        step_config = transformation_steps[0]
+        variations = generate_transformation_variations(session_id, 1, image_base64, step_config)
+        
+        # Prepare response with S3 URLs (no base64)
+        response_variations = []
+        for v in variations:
+            response_variations.append({
+                'image_url': v.get('image_url'),
+                'prompt': v.get('prompt'),
+                'error': v.get('error')
+            })
+        
+        # Update status to ready after all variations generated
+        table.update_item(
+            Key={'pk': 'TRANSFORM_SESSION', 'sk': session_id},
+            UpdateExpression="SET #status = :status",
+            ExpressionAttributeNames={'#status': 'status'},
+            ExpressionAttributeValues={':status': 'ready'}
+        )
         
         return response(200, {
             'success': True,
             'session_id': session_id,
             'step': 1,
             'step_name': step_config['name'],
-            'total_steps': len(TRANSFORMATION_STEPS),
-            'variations': variations
+            'total_steps': len(transformation_steps),
+            'variations': response_variations
         })
         
     except Exception as e:
@@ -403,14 +426,13 @@ def continue_transformation(event):
         return response(400, {'error': 'Invalid JSON body'})
     
     session_id = body.get('session_id')
-    selected_index = body.get('selected_index')
-    selected_image = body.get('selected_image')  # base64
+    selected_index = body.get('selected_index')  # -1 = keep current, 0+ = variation index
     
     if not session_id:
         return response(400, {'error': 'session_id is required'})
     
-    if selected_index is None or selected_image is None:
-        return response(400, {'error': 'selected_index and selected_image are required'})
+    if selected_index is None:
+        return response(400, {'error': 'selected_index is required'})
     
     try:
         result = table.get_item(Key={'pk': 'TRANSFORM_SESSION', 'sk': session_id})
@@ -420,6 +442,43 @@ def continue_transformation(event):
             return response(404, {'error': 'Session not found'})
         
         current_step = int(session.get('current_step', 1))
+        # Read variations from step-specific key
+        variations = session.get(f'step_{current_step}_variations', [])
+        current_image_url = session.get('current_image_url')
+        
+        # Determine which image to use based on selected_index
+        if selected_index == -1:
+            # Keep current image (skip this transformation)
+            selected_image_url = current_image_url
+            print(f"User chose to keep current image for step {current_step}")
+        else:
+            # Use selected variation
+            if selected_index < 0 or selected_index >= len(variations):
+                return response(400, {'error': f'Invalid selected_index: {selected_index}, variations count: {len(variations)}'})
+            
+            variation = variations[selected_index]
+            selected_image_url = variation.get('image_url')
+            
+            if not selected_image_url:
+                return response(400, {'error': 'Selected variation has no image_url'})
+        
+        # Download selected image from S3
+        print(f"Fetching selected image from: {selected_image_url}")
+        try:
+            # Extract S3 key from URL
+            if S3_BUCKET in selected_image_url:
+                s3_key = selected_image_url.split(f"{S3_BUCKET}.s3.amazonaws.com/")[1]
+                s3_response = s3.get_object(Bucket=S3_BUCKET, Key=s3_key)
+                image_data = s3_response['Body'].read()
+            else:
+                # Fallback: fetch from URL
+                req = urllib.request.Request(selected_image_url, headers={'User-Agent': 'Mozilla/5.0'})
+                with urllib.request.urlopen(req, timeout=30) as resp:
+                    image_data = resp.read()
+        except Exception as e:
+            print(f"Error fetching selected image: {e}")
+            return response(500, {'error': f'Failed to fetch selected image: {str(e)}'})
+        
         gender = session.get('gender', 'female')  # Get gender from session
         transformation_steps = get_transformation_steps(gender)
         
@@ -431,16 +490,18 @@ def continue_transformation(event):
         
         next_step = current_step + 1
         
-        # Save selected image to S3
+        # Save selected image to S3 for this step
         selected_image_key = f"transform_sessions/{session_id}/step{current_step}_selected.png"
-        image_data = base64.b64decode(selected_image)
         s3.put_object(
             Bucket=S3_BUCKET,
             Key=selected_image_key,
             Body=image_data,
             ContentType='image/png'
         )
-        selected_image_url = f"https://{S3_BUCKET}.s3.amazonaws.com/{selected_image_key}"
+        new_current_image_url = f"https://{S3_BUCKET}.s3.amazonaws.com/{selected_image_key}"
+        
+        # Convert image_data to base64 for next transformation
+        selected_image_base64 = base64.b64encode(image_data).decode('utf-8')
         
         if next_step > len(transformation_steps):
             # All transformations complete
@@ -465,7 +526,7 @@ def continue_transformation(event):
                     ':selections': selections,
                     ':step': next_step,
                     ':url': file_url,
-                    ':curr_url': selected_image_url
+                    ':curr_url': new_current_image_url
                 }
             )
             
@@ -479,29 +540,39 @@ def continue_transformation(event):
             })
         
         step_config = transformation_steps[next_step - 1]
-        variations = generate_transformation_variations(selected_image, step_config)
         
-        # Store variation images in S3
-        for i, var in enumerate(variations):
-            if 'image_base64' in var and not var.get('error'):
-                var_key = f"transform_sessions/{session_id}/step{next_step}_var{i}.png"
-                var_data = base64.b64decode(var['image_base64'])
-                s3.put_object(
-                    Bucket=S3_BUCKET,
-                    Key=var_key,
-                    Body=var_data,
-                    ContentType='image/png'
-                )
-                var['image_url'] = f"https://{S3_BUCKET}.s3.amazonaws.com/{var_key}"
-        
+        # Pre-allocate variations list for this step
         table.update_item(
             Key={'pk': 'TRANSFORM_SESSION', 'sk': session_id},
-            UpdateExpression="SET current_step = :step, current_image_url = :img, selections = :sel",
+            UpdateExpression=f"SET step_{next_step}_variations = :vars, current_step = :step, current_image_url = :img, selections = :sel, #status = :status",
+            ExpressionAttributeNames={'#status': 'status'},
             ExpressionAttributeValues={
+                ':vars': [None, None, None, None],
                 ':step': next_step,
-                ':img': selected_image_url,
-                ':sel': selections
+                ':img': new_current_image_url,
+                ':sel': selections,
+                ':status': 'generating'
             }
+        )
+        
+        # Generate variations (this updates DynamoDB as each one completes)
+        variations = generate_transformation_variations(session_id, next_step, selected_image_base64, step_config)
+        
+        # Prepare clean response (no base64)
+        response_variations = []
+        for v in variations:
+            response_variations.append({
+                'image_url': v.get('image_url'),
+                'prompt': v.get('prompt'),
+                'error': v.get('error')
+            })
+        
+        # Update status to ready
+        table.update_item(
+            Key={'pk': 'TRANSFORM_SESSION', 'sk': session_id},
+            UpdateExpression="SET #status = :status",
+            ExpressionAttributeNames={'#status': 'status'},
+            ExpressionAttributeValues={':status': 'ready'}
         )
         
         return response(200, {
@@ -510,7 +581,7 @@ def continue_transformation(event):
             'step': next_step,
             'step_name': step_config['name'],
             'total_steps': len(transformation_steps),
-            'variations': variations,
+            'variations': response_variations,
             'completed': False
         })
         
@@ -539,15 +610,37 @@ def get_transformation_session(event):
         
         gender = session.get('gender', 'female')
         transformation_steps = get_transformation_steps(gender)
+        current_step = int(session.get('current_step', 1))
+        
+        # Get variations from step-specific key
+        variations = session.get(f'step_{current_step}_variations', [])
+        clean_variations = []
+        for v in variations:
+            if v:  # Skip None entries
+                clean_variations.append({
+                    'image_url': v.get('image_url'),
+                    'prompt': v.get('prompt'),
+                    'error': v.get('error')
+                })
+        
+        # Determine status based on variations
+        status = session.get('status', 'generating')
+        if len(clean_variations) >= 4 or all(v.get('image_url') or v.get('error') for v in clean_variations if v):
+            # All variations generated (or errored), ready for selection
+            if status != 'completed':
+                status = 'ready'
         
         return response(200, {
             'session_id': session_id,
             'name': session.get('name'),
             'gender': gender,
-            'current_step': int(session.get('current_step', 1)),
+            'current_step': current_step,
             'total_steps': len(transformation_steps),
-            'status': session.get('status'),
+            'status': status,
             'selections': session.get('selections', {}),
+            'variations': clean_variations,
+            'current_image_url': session.get('current_image_url'),
+            'original_image_url': session.get('original_image_url'),
             'final_image_url': session.get('final_image_url')
         })
         
