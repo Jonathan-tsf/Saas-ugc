@@ -60,6 +60,20 @@ from handlers.showcase_generation import (
     poll_scene_replicate
 )
 
+# Import authentication handlers
+from handlers.auth import (
+    sign_up,
+    confirm_sign_up,
+    sign_in,
+    resend_confirmation_code,
+    forgot_password,
+    confirm_forgot_password,
+    refresh_token,
+    get_user_profile,
+    update_user_profile,
+    create_user_from_oauth,
+)
+
 
 def lambda_handler(event, context):
     """Main Lambda handler - routes requests to appropriate functions"""
@@ -137,6 +151,20 @@ def lambda_handler(event, context):
         ('POST', '/api/book-demo'): create_booking,
         ('POST', '/api/contact'): send_contact_email,
         ('GET', '/api/ambassadors'): get_public_ambassadors,
+        
+        # User Authentication (public)
+        ('POST', '/api/auth/signup'): sign_up,
+        ('POST', '/api/auth/confirm'): confirm_sign_up,
+        ('POST', '/api/auth/signin'): sign_in,
+        ('POST', '/api/auth/resend-code'): resend_confirmation_code,
+        ('POST', '/api/auth/forgot-password'): forgot_password,
+        ('POST', '/api/auth/reset-password'): confirm_forgot_password,
+        ('POST', '/api/auth/refresh'): refresh_token,
+        
+        # User Profile (authenticated)
+        ('GET', '/api/user/profile'): get_user_profile,
+        ('PUT', '/api/user/profile'): update_user_profile,
+        ('POST', '/api/user/profile'): create_user_from_oauth,
         
         # Admin auth
         ('POST', '/api/admin/login'): admin_login,
