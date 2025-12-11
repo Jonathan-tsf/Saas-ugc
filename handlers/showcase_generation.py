@@ -15,7 +15,7 @@ from datetime import datetime
 
 from config import (
     response, decimal_to_python, verify_admin,
-    dynamodb, s3, S3_BUCKET, NANO_BANANA_API_KEY
+    dynamodb, s3, S3_BUCKET, NANO_BANANA_API_KEY, REPLICATE_API_KEY
 )
 
 # DynamoDB tables
@@ -34,6 +34,9 @@ CLAUDE_MODEL_ID = "us.anthropic.claude-sonnet-4-20250514-v1:0"
 
 # Gemini 3 Pro Image Preview (Nano Banana Pro)
 GEMINI_API_URL = "https://generativelanguage.googleapis.com/v1beta/models/gemini-3-pro-image-preview:generateContent"
+
+# Replicate API URL for fallback
+REPLICATE_API_URL = "https://api.replicate.com/v1/models/google/nano-banana-pro/predictions"
 
 # Number of showcase photos to generate
 NUM_SHOWCASE_PHOTOS = 15
@@ -256,6 +259,119 @@ def get_image_from_s3(image_url):
         return None
 
 
+def generate_showcase_image_replicate(outfit_image_base64, scene_description):
+    """
+    Fallback: Generate a showcase image using Replicate's Nano Banana Pro API
+    Used when Gemini API quota is exceeded or fails
+    """
+    import time
+    
+    if not REPLICATE_API_KEY:
+        print("REPLICATE_API_KEY not configured, cannot use fallback")
+        return None
+    
+    prompt = f"""Using the provided image of a person wearing an outfit, create a new photo of this EXACT same person in the following scene:
+
+{scene_description}
+
+CRITICAL REQUIREMENTS:
+- The person's face, body, skin tone, and ALL physical features must remain COMPLETELY IDENTICAL
+- The outfit they are wearing must remain EXACTLY the same as in the reference image
+- DO NOT change anything about the person or their clothing
+- Only change the BACKGROUND, POSE, and SETTING as described
+- The person MUST be looking directly at the camera
+- Use natural, professional lighting
+- High quality, photo-realistic result"""
+
+    headers = {
+        "Authorization": f"Bearer {REPLICATE_API_KEY}",
+        "Content-Type": "application/json",
+        "Prefer": "wait"  # Wait for result synchronously (up to 60s)
+    }
+    
+    # Build data URI for the image
+    image_data_uri = f"data:image/jpeg;base64,{outfit_image_base64}"
+    
+    payload = {
+        "input": {
+            "prompt": prompt,
+            "resolution": "2K",
+            "image_input": [image_data_uri],
+            "aspect_ratio": "9:16",
+            "output_format": "png",
+            "safety_filter_level": "block_only_high"
+        }
+    }
+    
+    try:
+        print(f"Calling Replicate API for scene: {scene_description[:50]}...")
+        
+        # Create prediction
+        data = json.dumps(payload).encode('utf-8')
+        req = urllib.request.Request(REPLICATE_API_URL, data=data, headers=headers, method='POST')
+        
+        with urllib.request.urlopen(req, timeout=120) as api_response:
+            result = json.loads(api_response.read().decode('utf-8'))
+            
+            print(f"Replicate initial response status: {result.get('status')}")
+            
+            # If prediction is completed immediately (Prefer: wait header)
+            if result.get('status') == 'succeeded':
+                output = result.get('output')
+                if output:
+                    return download_image_as_base64(output)
+            
+            # If still processing, poll for result
+            prediction_id = result.get('id')
+            if prediction_id:
+                get_url = f"https://api.replicate.com/v1/predictions/{prediction_id}"
+                
+                # Poll for up to 3 minutes
+                for _ in range(36):  # 36 * 5s = 180s = 3 minutes
+                    time.sleep(5)
+                    
+                    get_req = urllib.request.Request(get_url, headers={"Authorization": f"Bearer {REPLICATE_API_KEY}"})
+                    with urllib.request.urlopen(get_req, timeout=30) as poll_response:
+                        poll_result = json.loads(poll_response.read().decode('utf-8'))
+                        status = poll_result.get('status')
+                        
+                        print(f"Replicate prediction status: {status}")
+                        
+                        if status == 'succeeded':
+                            output = poll_result.get('output')
+                            if output:
+                                return download_image_as_base64(output)
+                            break
+                        elif status in ['failed', 'canceled']:
+                            print(f"Replicate prediction failed: {poll_result.get('error')}")
+                            break
+            
+            print(f"No output from Replicate: {json.dumps(result)[:500]}")
+            
+    except urllib.error.HTTPError as e:
+        error_body = e.read().decode('utf-8') if e.fp else 'No error body'
+        print(f"Replicate API HTTP error: {e.code} - {error_body[:1000]}")
+    except Exception as e:
+        print(f"Error with Replicate fallback: {e}")
+        import traceback
+        traceback.print_exc()
+    
+    return None
+
+
+def download_image_as_base64(url):
+    """Download an image from URL and return as base64"""
+    try:
+        print(f"Downloading image from: {url[:80]}...")
+        req = urllib.request.Request(url)
+        with urllib.request.urlopen(req, timeout=60) as response:
+            image_data = response.read()
+            return base64.b64encode(image_data).decode('utf-8')
+    except Exception as e:
+        print(f"Error downloading image: {e}")
+        return None
+
+
 def generate_showcase_image(outfit_image_base64, scene_description):
     """Generate a showcase image using Gemini 3 Pro Image (Nano Banana Pro)"""
     
@@ -323,10 +439,16 @@ Generate a professional photo in portrait orientation (9:16 aspect ratio)."""
     except urllib.error.HTTPError as e:
         error_body = e.read().decode('utf-8') if e.fp else 'No error body'
         print(f"Gemini API HTTP error: {e.code} - {error_body[:1000]}")
+        # Fallback to Replicate on quota exceeded (429) or other errors
+        print("Attempting fallback to Replicate API...")
+        return generate_showcase_image_replicate(outfit_image_base64, scene_description)
     except Exception as e:
         print(f"Error generating showcase image: {e}")
         import traceback
         traceback.print_exc()
+        # Fallback to Replicate on any error
+        print("Attempting fallback to Replicate API...")
+        return generate_showcase_image_replicate(outfit_image_base64, scene_description)
     
     return None
 

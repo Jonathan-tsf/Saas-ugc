@@ -16,6 +16,8 @@ OWNER_EMAIL = "support@bysepia.com"
 S3_BUCKET = os.environ.get('S3_BUCKET', 'ugc-ambassadors-media')
 # Using Gemini API - variable name kept for compatibility but it's a Gemini API key
 NANO_BANANA_API_KEY = os.environ.get('NANO_BANANA_PRO_API_KEY', os.environ.get('NANO_BANANA_API_KEY', ''))
+# Replicate API key for fallback
+REPLICATE_API_KEY = os.environ.get('REPLICATE_KEY', '')
 
 # AWS Clients
 dynamodb = boto3.resource('dynamodb')
