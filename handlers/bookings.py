@@ -257,7 +257,7 @@ def send_confirmation_emails(booking):
             <h1 style="color: #22c55e;">✅ Ta démo est confirmée !</h1>
             
             <p>Salut {name} 👋</p>
-            <p>Merci d'avoir réservé une démo avec UGC Studio. On a hâte de te montrer comment on peut booster ton contenu !</p>
+            <p>Merci d'avoir réservé une démo avec SépiaLabs. On a hâte de te montrer comment on peut booster ton contenu !</p>
             
             <div style="background: #333; padding: 20px; border-radius: 8px; margin: 20px 0; text-align: center;">
                 <h2 style="margin-top: 0;">📅 Ton rendez-vous</h2>
@@ -302,7 +302,7 @@ def send_confirmation_emails(booking):
             Source=OWNER_EMAIL,
             Destination={'ToAddresses': [email]},
             Message={
-                'Subject': {'Data': '✅ Ta démo UGC Studio est confirmée !'},
+                'Subject': {'Data': '✅ Ta démo SépiaLabs est confirmée !'},
                 'Body': {'Html': {'Data': client_html}}
             }
         )

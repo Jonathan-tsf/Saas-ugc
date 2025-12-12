@@ -1,4 +1,4 @@
-# Configuration AWS Lambda - UGC Studio Booking
+# Configuration AWS Lambda 
 
 ## 1. Configuration DynamoDB
 
