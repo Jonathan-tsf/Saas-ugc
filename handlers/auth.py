@@ -467,6 +467,16 @@ def get_user_profile(event):
             'provider': db_user.get('provider', 'google' if is_oauth_user else 'email'),
             'created_at': db_user.get('created_at'),
             'updated_at': db_user.get('updated_at'),
+            # Pipeline preferences
+            'pipeline_preferences': db_user.get('pipeline_preferences'),
+            'user_profile_type': db_user.get('user_profile_type'),
+            'user_profile_other': db_user.get('user_profile_other'),
+            'main_sectors': db_user.get('main_sectors'),
+            'sub_sectors': db_user.get('sub_sectors'),
+            'content_style': db_user.get('content_style'),
+            'company_name': db_user.get('company_name'),
+            'website': db_user.get('website'),
+            'instagram_handle': db_user.get('instagram_handle'),
         })
         
     except Exception as e:
@@ -531,8 +541,23 @@ def update_user_profile(event):
         if not user_id:
             return response(401, {'message': 'Impossible d\'identifier l\'utilisateur'})
         
-        # Update DynamoDB (works for all users)
+        # Ensure user exists in DynamoDB first (create if needed)
         now = datetime.utcnow().isoformat()
+        
+        # Check if user exists
+        existing_user = users_table.get_item(Key={'user_id': user_id}).get('Item')
+        
+        if not existing_user:
+            # Create new user record
+            print(f"Creating new user in DynamoDB: {user_id}")
+            users_table.put_item(Item={
+                'user_id': user_id,
+                'created_at': now,
+                'updated_at': now,
+                'provider': 'google' if is_oauth_user else 'email',
+            })
+        
+        # Build update expression
         update_expr = 'SET updated_at = :updated_at'
         expr_values = {':updated_at': now}
         expr_names = {}
@@ -546,12 +571,56 @@ def update_user_profile(event):
             update_expr += ', picture = :picture'
             expr_values[':picture'] = body['picture']
         
-        users_table.update_item(
-            Key={'user_id': user_id},
-            UpdateExpression=update_expr,
-            ExpressionAttributeValues=expr_values,
-            ExpressionAttributeNames=expr_names if expr_names else None,
-        )
+        # Pipeline preferences - stored as JSON object
+        if 'pipeline_preferences' in body:
+            update_expr += ', pipeline_preferences = :pipeline_prefs'
+            expr_values[':pipeline_prefs'] = body['pipeline_preferences']
+        
+        # Individual pipeline fields for backward compatibility
+        if 'user_profile_type' in body:
+            update_expr += ', user_profile_type = :user_profile_type'
+            expr_values[':user_profile_type'] = body['user_profile_type']
+        
+        if 'user_profile_other' in body:
+            update_expr += ', user_profile_other = :user_profile_other'
+            expr_values[':user_profile_other'] = body['user_profile_other']
+        
+        if 'main_sectors' in body:
+            update_expr += ', main_sectors = :main_sectors'
+            expr_values[':main_sectors'] = body['main_sectors']
+        
+        if 'sub_sectors' in body:
+            update_expr += ', sub_sectors = :sub_sectors'
+            expr_values[':sub_sectors'] = body['sub_sectors']
+        
+        if 'content_style' in body:
+            update_expr += ', content_style = :content_style'
+            expr_values[':content_style'] = body['content_style']
+        
+        if 'company_name' in body:
+            update_expr += ', company_name = :company_name'
+            expr_values[':company_name'] = body['company_name']
+        
+        if 'website' in body:
+            update_expr += ', website = :website'
+            expr_values[':website'] = body['website']
+        
+        if 'instagram_handle' in body:
+            update_expr += ', instagram_handle = :instagram_handle'
+            expr_values[':instagram_handle'] = body['instagram_handle']
+        
+        # Build update params
+        update_params = {
+            'Key': {'user_id': user_id},
+            'UpdateExpression': update_expr,
+            'ExpressionAttributeValues': expr_values,
+        }
+        
+        # Only add ExpressionAttributeNames if we have any
+        if expr_names:
+            update_params['ExpressionAttributeNames'] = expr_names
+        
+        users_table.update_item(**update_params)
         
         return response(200, {'message': 'Profil mis à jour avec succès'})
         
