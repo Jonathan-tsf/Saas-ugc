@@ -44,39 +44,39 @@ NUM_SHOWCASE_PHOTOS = 15
 # Few-shot learning examples for scene descriptions
 FEW_SHOT_EXAMPLES = """
 A. Face cam "TikTok talk" (SEULEMENT pour ces scènes, regard caméra approprié):
-- Assis sur une chaise, face caméra, mains posées sur les cuisses, buste légèrement penché vers l'avant, léger sourire, fond mur blanc ou chambre normale.
-- Assis au bord d'un canapé, une main qui bouge légèrement comme s'il expliquait quelque chose, expression calme et sincère.
-- Debout, face caméra, pieds largeur épaules, mains liées devant le bassin, expression neutre, fond mur simple ou porte.
+- Scène TikTok face caméra: Assis sur une chaise moderne dans un salon épuré aux tons neutres, face à la caméra, mains posées naturellement sur les cuisses, buste légèrement penché vers l'avant en position d'écoute active, léger sourire confiant, fond mur blanc minimaliste avec plante verte floue, éclairage doux et naturel, ambiance lifestyle décontractée.
+- Scène TikTok face caméra: Assis au bord d'un canapé gris confortable dans un intérieur cosy moderne, une main qui gesticule légèrement comme pour expliquer quelque chose avec passion, expression calme et sincère, regard direct et engageant, ambiance conversation authentique entre amis.
+- Scène TikTok face caméra: Debout dans un espace lumineux et aéré, face caméra, pieds largeur d'épaules en position stable, mains liées devant le bassin en posture ouverte, expression neutre professionnelle, fond mur simple ou porte blanche, éclairage de studio naturel.
 
 B. Scènes avec ordinateur / bureau (REGARD SUR L'ÉCRAN, PAS la caméra):
-- Assis à un bureau, laptop ouvert, il regarde l'écran avec concentration, mains sur le clavier, profil ou trois-quarts.
-- Assis au bureau, une main sur la souris, regard focalisé sur l'écran, expression concentrée.
-- Assis au bureau, penché vers l'écran, une main sur le menton, absorbé par ce qu'il lit.
+- Scène bureau travail productif: Assis à un bureau minimaliste en bois clair, laptop Apple ouvert, regard intensément focalisé sur l'écran avec concentration profonde, mains sur le clavier en position de frappe, profil trois-quarts, lumière naturelle de fenêtre, plante décorative en arrière-plan, ambiance entrepreneur digital productif.
+- Scène bureau concentration: Assis au bureau moderne, une main sur la souris ergonomique, regard hypnotiquement focalisé sur l'écran, expression de concentration intense et sérieuse, dos droit en bonne posture, ambiance travail créatif professionnel.
+- Scène bureau réflexion: Assis au bureau épuré, penché vers l'écran avec curiosité, une main sur le menton en position pensive, complètement absorbé par la lecture, ambiance étude ou recherche, éclairage chaud de lampe de bureau.
 
 C. Scènes cuisine / manger / boire (regard naturel sur l'activité):
-- Debout dans une cuisine, regarde les ingrédients qu'il prépare sur le plan de travail, expression concentrée.
-- Assis à une table, regarde son assiette, fourchette à la main, moment naturel du repas.
-- Debout, verse un smoothie dans un verre, regarde ce qu'il fait, lumière naturelle.
+- Scène cuisine healthy préparation: Debout dans une cuisine moderne aux lignes épurées, comptoir en marbre blanc, regarde attentivement les ingrédients frais qu'elle prépare sur le plan de travail, expression concentrée de chef amateur, légumes colorés et ustensiles, lumière naturelle abondante, ambiance lifestyle healthy nutrition.
+- Scène repas healthy: Assis à une table en bois naturel, regarde son assiette colorée healthy, fourchette à la main prêt à manger, moment naturel authentique du repas, smoothie vert à côté, ambiance alimentation équilibrée bien-être.
+- Scène smoothie preparation: Debout dans cuisine lumineuse, verse soigneusement un smoothie protéiné vert dans un verre élégant, regarde précisément ce qu'il fait, fruits frais autour, lumière naturelle matinale, ambiance routine fitness nutrition.
 
 D. Scènes fitness / gym (REGARD SUR L'EXERCICE ou droit devant, PAS la caméra):
-- Debout face à un miroir de salle de sport, regarde son reflet, position de repos entre les séries.
-- Assis sur un banc de musculation, regarde droit devant lui, expression concentrée, repos entre exercices.
-- Debout, étirements, regarde vers le sol ou droit devant, expression calme et focalisée.
-- En position de planche ou exercice au sol, regard vers le sol, concentration sur l'effort.
+- Scène gym repos fitness: Debout face au miroir d'une salle de sport moderne équipée, regarde son reflet pour vérifier sa posture, position de repos entre les séries d'exercices, épaules détendues, ambiance training musculation, équipements fitness en arrière-plan flou.
+- Scène gym concentration: Assis sur un banc de musculation professionnel, regarde droit devant avec détermination, expression concentrée et focalisée, repos entre exercices de force, serviette sur l'épaule, ambiance workout intense.
+- Scène stretching récupération: Debout dans espace fitness lumineux, étirements post-workout, regarde vers le sol en suivant son mouvement, expression calme et focalisée, muscles en extension, ambiance wellness récupération.
+- Scène exercice effort: En position de planche parfaite ou exercice au sol, regard déterminé vers le sol, concentration totale sur l'effort physique, tapis de yoga, ambiance home workout training.
 
 E. Debout / positions simples (mélange regard caméra et regard naturel):
-- Debout, bras croisés, regarde légèrement sur le côté, expression pensive.
-- Debout, une main dans la poche, regarde par la fenêtre, profil naturel.
-- Debout, appuyé contre un mur, regarde son téléphone dans sa main.
+- Scène pensive casual: Debout dans salon moderne, bras croisés sur la poitrine en position réflexive, regarde légèrement sur le côté avec expression pensive, ambiance réflexion créative, éclairage doux lifestyle.
+- Scène contemplation fenêtre: Debout près d'une grande fenêtre lumineuse, une main dans la poche de façon décontractée, regarde le paysage par la fenêtre avec sérénité, profil naturel artistique, lumière dorée sur le visage, ambiance moment de calme mindfulness.
+- Scène téléphone relax: Debout appuyé contre un mur texturé, regarde son téléphone dans sa main avec intérêt, scroll décontracté, posture relaxée, ambiance digital lifestyle quotidien.
 
 F. Téléphone / scroll (regard sur le téléphone):
-- Assis sur un canapé, téléphone dans les mains, regarde l'écran, expression concentrée.
-- Debout, téléphone dans une main, tape un message, regard sur l'écran.
+- Scène scroll canapé: Assis confortablement sur un canapé moelleux, téléphone dans les deux mains, regarde l'écran avec attention, expression concentrée et absorbée, jambes repliées, ambiance chill digital, coussins et plaid autour.
+- Scène message debout: Debout en position naturelle, téléphone dans une main, tape activement un message, regard fixé sur l'écran avec concentration, ambiance communication connectée moderne.
 
 G. Scènes lifestyle naturelles:
-- Assis dans le salon, lit un livre ou magazine, regard sur les pages.
-- Debout près d'une fenêtre, regarde dehors, profil pensif, lumière naturelle sur le visage.
-- Assis à un bureau avec un carnet, écrit quelque chose, regard sur le carnet.
+- Scène lecture détente: Assis dans un fauteuil confortable du salon cosy, lit un livre captivant ou magazine lifestyle, regard complètement absorbé par les pages, expression sereine, plante verte et lumière naturelle, ambiance self-care intellectual wellness.
+- Scène fenêtre contemplation: Debout près d'une grande baie vitrée lumineuse, regarde dehors vers l'horizon avec expression pensive, profil pensif artistique, lumière naturelle douce sur le visage, ambiance moment introspection mindfulness.
+- Scène écriture créative: Assis à un bureau épuré avec un carnet élégant ouvert, écrit quelque chose avec concentration, regard focalisé sur le carnet, stylo élégant dans la main, ambiance productivité créative journaling.
 """
 
 
@@ -117,7 +117,7 @@ def generate_scene_descriptions_with_claude(available_categories, ambassador_gen
     gender_article = "un homme" if ambassador_gender == "male" else "une femme"
     
     system_prompt = f"""Tu es un expert en création de contenu pour TikTok et réseaux sociaux. 
-Tu dois générer exactement 15 descriptions de scènes pour des photos d'ambassadeurs UGC.
+Tu dois générer exactement 15 descriptions de scènes TRÈS DÉTAILLÉES pour des photos d'ambassadeurs UGC.
 
 RÈGLES CRITIQUES:
 1. Le regard caméra est UNIQUEMENT pour les scènes "face cam TikTok talk" (max 4-5 scènes sur 15)
@@ -138,13 +138,28 @@ RÈGLE ABSOLUE - ZÉRO TEXTE:
 
 La personne est {gender_article}.
 
+FORMAT DESCRIPTION REQUIS (TRÈS IMPORTANT):
+Chaque description doit contenir OBLIGATOIREMENT:
+1. Un PRÉFIXE de catégorie (ex: "Scène fitness gym:", "Scène bureau travail:", "Scène lifestyle relaxation:")
+2. Le DÉCOR détaillé (type de pièce, couleurs, meubles, lumière, ambiance)
+3. La POSE précise (position du corps, des mains, orientation)
+4. La DIRECTION DU REGARD (vers quoi la personne regarde exactement)
+5. L'EXPRESSION faciale
+6. L'AMBIANCE générale avec des mots-clés lifestyle (fitness, wellness, productivity, healthy, etc.)
+
+MOTS-CLÉS À INTÉGRER selon la scène:
+- Fitness/Gym: workout, training, musculation, exercise, fitness, gym, sport, athletic, wellness
+- Bureau/Travail: productivity, work, business, professional, entrepreneur, digital, creative
+- Cuisine/Food: healthy, nutrition, cooking, food, meal, smoothie, preparation, lifestyle
+- Lifestyle: relaxation, mindfulness, self-care, wellness, lifestyle, modern, cozy, authentic
+
 IMPORTANT: Tu dois UNIQUEMENT répondre avec un JSON valide, sans aucun texte avant ou après."""
 
-    user_prompt = f"""Génère 15 descriptions de scènes pour un ambassadeur UGC.
+    user_prompt = f"""Génère 15 descriptions de scènes TRÈS DÉTAILLÉES pour un ambassadeur UGC.
 
 Catégories de tenues disponibles: {categories_str}
 
-Exemples de scènes inspirantes (few-shot learning):
+Exemples de scènes inspirantes (SUIT CE FORMAT PRÉCIS):
 {FEW_SHOT_EXAMPLES}
 
 DISTRIBUTION DU REGARD (sur 15 photos):
@@ -154,21 +169,25 @@ DISTRIBUTION DU REGARD (sur 15 photos):
 Réponds UNIQUEMENT avec un JSON valide au format suivant (sans markdown, sans ```json, juste le JSON pur):
 {{
     "picture_1": {{
-        "position": "Description détaillée de la scène, pose, décor, expression, direction du regard...",
+        "position": "Scène [catégorie]: Description TRÈS détaillée de la scène avec décor, pose, expression, direction du regard, ambiance, mots-clés lifestyle...",
         "outfit_category": "casual"
     }},
     "picture_2": {{
-        "position": "...",
+        "position": "Scène [catégorie]: ...",
         "outfit_category": "fitness"
     }},
     ...jusqu'à picture_15
 }}
 
-Assure-toi que:
-- ZÉRO texte, marque, logo, chiffre visible dans AUCUNE scène
-- Le regard est approprié à l'activité (pas de regard caméra quand on travaille sur un ordi!)
-- La catégorie de tenue est cohérente avec le décor de la scène
-- Les scènes sont variées (bureau, cuisine, salon, gym, debout, assis, etc.)"""
+CHECKLIST POUR CHAQUE DESCRIPTION:
+✅ Préfixe "Scène [type]:"
+✅ Minimum 50 mots par description
+✅ Décor détaillé (couleurs, meubles, lumière)
+✅ Pose précise du corps
+✅ Direction du regard claire
+✅ Expression faciale
+✅ Mots-clés lifestyle/fitness/wellness intégrés
+✅ ZÉRO texte, marque, logo, chiffre visible"""
 
     try:
         request_body = {
