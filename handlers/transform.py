@@ -717,3 +717,254 @@ def finalize_ambassador(event):
     except Exception as e:
         print(f"Error finalizing ambassador: {e}")
         return response(500, {'error': f'Failed to create ambassador: {str(e)}'})
+
+
+def generate_profile_photos(event):
+    """
+    Generate 4 profile photo options using Nano Banana Pro (Gemini 3 Pro Image)
+    POST /api/admin/ambassadors/profile-photos
+    Body: { ambassador_id, source_image_index (optional, defaults to first showcase image) }
+    
+    Profile photos are:
+    - 1:1 square ratio
+    - Face centered
+    - Clean/neutral background
+    - Professional headshot style
+    """
+    if not verify_admin(event):
+        return response(401, {'error': 'Unauthorized'})
+    
+    try:
+        body = json.loads(event.get('body', '{}'))
+    except:
+        return response(400, {'error': 'Invalid JSON'})
+    
+    ambassador_id = body.get('ambassador_id')
+    source_image_index = body.get('source_image_index', 0)
+    
+    if not ambassador_id:
+        return response(400, {'error': 'ambassador_id is required'})
+    
+    # Get ambassador data
+    try:
+        result = ambassadors_table.get_item(Key={'id': ambassador_id})
+        ambassador = result.get('Item')
+        if not ambassador:
+            return response(404, {'error': 'Ambassador not found'})
+    except Exception as e:
+        print(f"Error fetching ambassador: {e}")
+        return response(500, {'error': 'Failed to fetch ambassador'})
+    
+    # Get source image (from showcase photos or profile photo)
+    showcase_photos = ambassador.get('photo_list_base_array', [])
+    current_profile = ambassador.get('photo_profile', '')
+    
+    source_image_url = None
+    if showcase_photos and source_image_index < len(showcase_photos):
+        source_image_url = showcase_photos[source_image_index]
+    elif current_profile:
+        source_image_url = current_profile
+    
+    if not source_image_url:
+        return response(400, {'error': 'No source image available for this ambassador'})
+    
+    # Download source image and convert to base64
+    try:
+        print(f"Downloading source image: {source_image_url[:50]}...")
+        req = urllib.request.Request(source_image_url)
+        with urllib.request.urlopen(req, timeout=30) as img_response:
+            image_data = img_response.read()
+            image_base64 = base64.b64encode(image_data).decode('utf-8')
+    except Exception as e:
+        print(f"Error downloading source image: {e}")
+        return response(500, {'error': 'Failed to download source image'})
+    
+    # Generate 4 profile photo options with Nano Banana Pro
+    gender = ambassador.get('gender', 'female')
+    name = ambassador.get('name', 'the person')
+    
+    profile_prompts = [
+        f"Create a professional profile photo of this {gender}. Square 1:1 ratio, face perfectly centered, clean neutral gray studio background, soft professional lighting, headshot from shoulders up, looking directly at camera with confident friendly expression. Keep the face identical to the input image.",
+        f"Create a modern social media profile photo of this {gender}. Square 1:1 ratio, face centered, minimalist white background, bright even lighting, upper body visible, natural relaxed expression, professional yet approachable. Keep the face identical to the input image.",
+        f"Create an elegant business profile photo of this {gender}. Square 1:1 ratio, face centered, soft gradient background from light gray to white, professional studio lighting with subtle rim light, head and shoulders framing, confident professional expression. Keep the face identical to the input image.",
+        f"Create a lifestyle profile photo of this {gender}. Square 1:1 ratio, face centered, blurred modern interior background with natural light, soft shadows, chest-up framing, warm friendly smile, authentic natural look. Keep the face identical to the input image."
+    ]
+    
+    generated_photos = []
+    
+    for i, prompt in enumerate(profile_prompts):
+        print(f"Generating profile photo {i+1}/4...")
+        
+        try:
+            # Use Nano Banana Pro (Gemini 3 Pro Image Preview)
+            result_base64 = call_nano_banana_pro_profile(image_base64, prompt)
+            
+            if result_base64:
+                # Upload to S3
+                photo_key = f"ambassadors/{ambassador_id}/profile_options/profile_{i+1}_{uuid.uuid4().hex[:8]}.png"
+                
+                s3.put_object(
+                    Bucket=S3_BUCKET,
+                    Key=photo_key,
+                    Body=base64.b64decode(result_base64),
+                    ContentType='image/png'
+                )
+                
+                photo_url = f"https://{S3_BUCKET}.s3.amazonaws.com/{photo_key}"
+                generated_photos.append({
+                    'index': i,
+                    'url': photo_url,
+                    'prompt_style': ['professional', 'social_media', 'business', 'lifestyle'][i]
+                })
+                print(f"Profile photo {i+1} uploaded: {photo_url}")
+            else:
+                print(f"Failed to generate profile photo {i+1}")
+                
+        except Exception as e:
+            print(f"Error generating profile photo {i+1}: {e}")
+            continue
+    
+    if not generated_photos:
+        return response(500, {'error': 'Failed to generate any profile photos'})
+    
+    # Store the options in DynamoDB for later selection
+    try:
+        ambassadors_table.update_item(
+            Key={'id': ambassador_id},
+            UpdateExpression="SET profile_photo_options = :options, updated_at = :updated",
+            ExpressionAttributeValues={
+                ':options': generated_photos,
+                ':updated': datetime.now().isoformat()
+            }
+        )
+    except Exception as e:
+        print(f"Error storing profile options: {e}")
+    
+    return response(200, {
+        'success': True,
+        'profile_photos': generated_photos,
+        'ambassador_id': ambassador_id
+    })
+
+
+def call_nano_banana_pro_profile(image_base64, prompt):
+    """
+    Call Nano Banana Pro (Gemini 3 Pro Image Preview) for profile photo generation.
+    Uses 1:1 aspect ratio for profile photos.
+    """
+    if not NANO_BANANA_API_KEY:
+        raise Exception("NANO_BANANA_API_KEY not configured")
+    
+    # Nano Banana Pro = gemini-3-pro-image-preview
+    api_url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-3-pro-image-preview:generateContent?key={NANO_BANANA_API_KEY}"
+    
+    headers = {
+        "Content-Type": "application/json"
+    }
+    
+    payload = {
+        "contents": [{
+            "parts": [
+                {"text": prompt},
+                {"inline_data": {"mime_type": "image/jpeg", "data": image_base64}}
+            ]
+        }],
+        "generationConfig": {
+            "responseModalities": ["TEXT", "IMAGE"],
+            "imageConfig": {
+                "aspectRatio": "1:1",
+                "imageSize": "1K"
+            }
+        }
+    }
+    
+    try:
+        print(f"Calling Nano Banana Pro API for profile photo...")
+        api_response = requests.post(api_url, headers=headers, json=payload, timeout=180)
+        
+        if api_response.ok:
+            result = api_response.json()
+            
+            # Extract image from response
+            for candidate in result.get('candidates', []):
+                for part in candidate.get('content', {}).get('parts', []):
+                    if 'inlineData' in part:
+                        print("Nano Banana Pro profile generation successful")
+                        return part['inlineData']['data']
+            
+            print("No image in Nano Banana Pro response")
+            return None
+        else:
+            print(f"Nano Banana Pro API error: {api_response.status_code}")
+            print(f"Response: {api_response.text[:500]}")
+            return None
+            
+    except Exception as e:
+        print(f"Nano Banana Pro API error: {e}")
+        return None
+
+
+def select_profile_photo(event):
+    """
+    Select one of the generated profile photos as the ambassador's profile photo.
+    POST /api/admin/ambassadors/profile-photos/select
+    Body: { ambassador_id, selected_index }
+    """
+    if not verify_admin(event):
+        return response(401, {'error': 'Unauthorized'})
+    
+    try:
+        body = json.loads(event.get('body', '{}'))
+    except:
+        return response(400, {'error': 'Invalid JSON'})
+    
+    ambassador_id = body.get('ambassador_id')
+    selected_index = body.get('selected_index')
+    
+    if not ambassador_id:
+        return response(400, {'error': 'ambassador_id is required'})
+    if selected_index is None:
+        return response(400, {'error': 'selected_index is required'})
+    
+    # Get ambassador data
+    try:
+        result = ambassadors_table.get_item(Key={'id': ambassador_id})
+        ambassador = result.get('Item')
+        if not ambassador:
+            return response(404, {'error': 'Ambassador not found'})
+    except Exception as e:
+        print(f"Error fetching ambassador: {e}")
+        return response(500, {'error': 'Failed to fetch ambassador'})
+    
+    # Get the profile options
+    profile_options = ambassador.get('profile_photo_options', [])
+    
+    selected_photo = None
+    for option in profile_options:
+        if option.get('index') == selected_index:
+            selected_photo = option
+            break
+    
+    if not selected_photo:
+        return response(400, {'error': f'Invalid selected_index: {selected_index}'})
+    
+    # Update ambassador's profile photo
+    try:
+        ambassadors_table.update_item(
+            Key={'id': ambassador_id},
+            UpdateExpression="SET photo_profile = :photo, updated_at = :updated",
+            ExpressionAttributeValues={
+                ':photo': selected_photo['url'],
+                ':updated': datetime.now().isoformat()
+            }
+        )
+        
+        return response(200, {
+            'success': True,
+            'photo_profile': selected_photo['url'],
+            'ambassador_id': ambassador_id
+        })
+        
+    except Exception as e:
+        print(f"Error updating profile photo: {e}")
+        return response(500, {'error': 'Failed to update profile photo'})

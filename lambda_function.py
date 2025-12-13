@@ -60,6 +60,12 @@ from handlers.showcase_generation import (
     poll_scene_replicate
 )
 
+# Import profile photo generation handlers
+from handlers.transform import (
+    generate_profile_photos,
+    select_profile_photo,
+)
+
 # Import authentication handlers
 from handlers.auth import (
     sign_up,
@@ -207,6 +213,10 @@ def lambda_handler(event, context):
         ('POST', '/api/admin/ambassadors/showcase/select'): select_showcase_photo,
         ('POST', '/api/admin/ambassadors/showcase/scene'): generate_scene,
         ('POST', '/api/admin/ambassadors/showcase/scene/poll'): poll_scene_replicate,
+        
+        # Admin profile photo generation
+        ('POST', '/api/admin/ambassadors/profile-photos/generate'): generate_profile_photos,
+        ('POST', '/api/admin/ambassadors/profile-photos/select'): select_profile_photo,
     }
     
     # Find matching route
