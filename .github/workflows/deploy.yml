@@ -58,7 +58,7 @@ jobs:
             --function-name ${{ secrets.LAMBDA_FUNCTION_NAME }} \
             --zip-file fileb://deployment.zip \
             --publish
-
+ 
       - name: Add Pillow Lambda Layer
         run: |
           aws lambda update-function-configuration \
