@@ -58,6 +58,13 @@ jobs:
             --function-name ${{ secrets.LAMBDA_FUNCTION_NAME }} \
             --zip-file fileb://deployment.zip \
             --publish
+
+      - name: Wait for Lambda to be ready
+        run: |
+          echo "Waiting for Lambda function to be ready..."
+          aws lambda wait function-updated \
+            --function-name ${{ secrets.LAMBDA_FUNCTION_NAME }}
+          echo "Lambda function is ready!"
  
       - name: Add Pillow Lambda Layer
         run: |
