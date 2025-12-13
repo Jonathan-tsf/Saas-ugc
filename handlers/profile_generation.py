@@ -48,24 +48,32 @@ def detect_face_bounds(image_bytes):
     Returns dict with left, top, width, height as fractions, or None if no face.
     """
     try:
+        print(f"Calling Rekognition detect_faces... (image size: {len(image_bytes)} bytes)")
         resp = rekognition.detect_faces(
             Image={'Bytes': image_bytes},
             Attributes=['DEFAULT']
         )
         
+        face_count = len(resp.get('FaceDetails', []))
+        print(f"Rekognition response: {face_count} face(s) detected")
+        
         if resp['FaceDetails']:
             # Get the largest/most prominent face
             face = max(resp['FaceDetails'], key=lambda f: f['BoundingBox']['Width'] * f['BoundingBox']['Height'])
             box = face['BoundingBox']
+            confidence = face.get('Confidence', 0)
+            print(f"Face detected at: left={box['Left']:.2f}, top={box['Top']:.2f}, "
+                  f"width={box['Width']:.2f}, height={box['Height']:.2f}, confidence={confidence:.1f}%")
             return {
                 'left': box['Left'],
                 'top': box['Top'],
                 'width': box['Width'],
                 'height': box['Height']
             }
+        print("No face found in image by Rekognition")
         return None
     except Exception as e:
-        print(f"Rekognition error: {e}")
+        print(f"Rekognition error: {type(e).__name__}: {e}")
         return None
 
 
