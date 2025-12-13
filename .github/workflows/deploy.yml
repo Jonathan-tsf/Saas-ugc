@@ -63,7 +63,7 @@ jobs:
         run: |
           aws lambda update-function-configuration \
             --function-name ${{ secrets.LAMBDA_FUNCTION_NAME }} \
-            --layers arn:aws:lambda:us-east-1:770693421928:layer:Klayers-p312-Pillow:3
+            --layers arn:aws:lambda:us-east-1:770693421928:layer:Klayers-p312-Pillow:8
 
       - name: Deployment successful
         run: |
