@@ -171,11 +171,12 @@ def generate_profile_crops(image_bytes, num_variations=4):
     Generate multiple crop variations from the same image.
     Different padding factors to give user choice.
     
-    Returns list of cropped image data.
+    Returns tuple: (list of cropped image data, face_detected boolean)
     """
     # Detect face
     face_bounds = detect_face_bounds(image_bytes)
     
+    face_detected = face_bounds is not None
     if face_bounds:
         print(f"Face detected at: {face_bounds}")
     else:
@@ -198,7 +199,7 @@ def generate_profile_crops(image_bytes, num_variations=4):
         except Exception as e:
             print(f"Error generating crop {i}: {e}")
     
-    return results
+    return results, face_detected
 
 
 def start_profile_generation(event):
@@ -206,6 +207,8 @@ def start_profile_generation(event):
     Start profile photo cropping - Returns job_id immediately, crops images async
     POST /api/admin/ambassadors/profile-photos/generate
     Body: { ambassador_id, source_image_index (optional) }
+    
+    Will try photo_profile first, then showcase photos, until a face is detected.
     """
     if not verify_admin(event):
         return response(401, {'error': 'Unauthorized'})
@@ -216,7 +219,6 @@ def start_profile_generation(event):
         return response(400, {'error': 'Invalid JSON body'})
     
     ambassador_id = body.get('ambassador_id')
-    source_image_index = body.get('source_image_index', 0)
     
     if not ambassador_id:
         return response(400, {'error': 'ambassador_id is required'})
@@ -235,16 +237,22 @@ def start_profile_generation(event):
     showcase_photos = ambassador.get('photo_list_base_array', [])
     current_profile = ambassador.get('photo_profile', '')
     
-    source_image_url = None
-    if showcase_photos and source_image_index < len(showcase_photos):
-        source_image_url = showcase_photos[source_image_index]
-    elif current_profile:
-        source_image_url = current_profile
+    # Build list of candidate images: profile photo first, then showcase photos
+    candidate_images = []
+    if current_profile:
+        candidate_images.append(current_profile)
+    if showcase_photos:
+        for photo in showcase_photos:
+            if photo and photo not in candidate_images:
+                candidate_images.append(photo)
     
-    if not source_image_url:
+    if not candidate_images:
         return response(400, {'error': 'No source image available for this ambassador'})
     
-    # Download source image
+    print(f"Found {len(candidate_images)} candidate images for face detection")
+    
+    # Download first image to start (will try others in async if no face found)
+    source_image_url = candidate_images[0]
     try:
         print(f"Downloading source image: {source_image_url[:50]}...")
         req = urllib.request.Request(source_image_url)
@@ -268,7 +276,7 @@ def start_profile_generation(event):
     )
     source_s3_url = f"https://{S3_BUCKET}.s3.amazonaws.com/{source_key}"
     
-    # Create job in DynamoDB
+    # Create job in DynamoDB - include all candidate images for fallback
     job = {
         'id': job_id,
         'type': 'PROFILE_CROP_JOB',
@@ -276,6 +284,7 @@ def start_profile_generation(event):
         'ambassador_name': name,
         'source_image_url': source_s3_url,
         'source_s3_key': source_key,
+        'candidate_images': candidate_images,  # All images to try for face detection
         'status': 'generating',  # generating, completed, error
         'progress': Decimal('0'),
         'total_photos': 4,
@@ -312,6 +321,7 @@ def generate_profile_photos_async(job_id):
     """
     Generate profile photo crops asynchronously - called by Lambda invoke
     Uses smart crop with face detection (no AI generation)
+    Tries multiple candidate images until a face is detected
     Updates DynamoDB progressively as each crop is generated
     """
     print(f"[{job_id}] Starting async profile photo cropping...")
@@ -325,15 +335,73 @@ def generate_profile_photos_async(job_id):
             print(f"[{job_id}] Job not found")
             return
         
-        # Get source image from S3
-        source_key = job.get('source_s3_key')
-        source_obj = s3.get_object(Bucket=S3_BUCKET, Key=source_key)
-        source_data = source_obj['Body'].read()
-        
         ambassador_id = job.get('ambassador_id')
+        candidate_images = job.get('candidate_images', [])
+        
+        # Try each candidate image until we find one with a face
+        source_data = None
+        face_detected = False
+        used_image_url = None
+        
+        # First, try the image already stored in S3
+        source_key = job.get('source_s3_key')
+        if source_key:
+            try:
+                source_obj = s3.get_object(Bucket=S3_BUCKET, Key=source_key)
+                source_data = source_obj['Body'].read()
+                used_image_url = candidate_images[0] if candidate_images else "stored"
+                
+                # Check if face is detected
+                face_bounds = detect_face_bounds(source_data)
+                if face_bounds:
+                    face_detected = True
+                    print(f"[{job_id}] ✓ Face detected in first image (profile photo)")
+            except Exception as e:
+                print(f"[{job_id}] Error reading stored image: {e}")
+        
+        # If no face in first image, try other candidate images
+        if not face_detected and len(candidate_images) > 1:
+            print(f"[{job_id}] No face in first image, trying {len(candidate_images) - 1} other candidate(s)...")
+            
+            for i, img_url in enumerate(candidate_images[1:], start=2):
+                try:
+                    print(f"[{job_id}] Trying candidate {i}/{len(candidate_images)}: {img_url[:50]}...")
+                    req = urllib.request.Request(img_url)
+                    with urllib.request.urlopen(req, timeout=30) as img_response:
+                        candidate_data = img_response.read()
+                    
+                    # Check for face
+                    face_bounds = detect_face_bounds(candidate_data)
+                    if face_bounds:
+                        face_detected = True
+                        source_data = candidate_data
+                        used_image_url = img_url
+                        print(f"[{job_id}] ✓ Face detected in candidate {i} (showcase photo)")
+                        break
+                    else:
+                        print(f"[{job_id}] ✗ No face in candidate {i}")
+                        
+                except Exception as e:
+                    print(f"[{job_id}] Error downloading candidate {i}: {e}")
+        
+        if not source_data:
+            print(f"[{job_id}] No valid source image found")
+            jobs_table.update_item(
+                Key={'id': job_id},
+                UpdateExpression='SET #status = :status, error = :error, updated_at = :updated',
+                ExpressionAttributeNames={'#status': 'status'},
+                ExpressionAttributeValues={
+                    ':status': 'error',
+                    ':error': 'No valid source image found',
+                    ':updated': datetime.now().isoformat()
+                }
+            )
+            return
+        
+        print(f"[{job_id}] Using image: {used_image_url[:50] if used_image_url else 'stored'}... (face_detected={face_detected})")
         
         # Generate crop variations (smart crop with face detection)
-        crops = generate_profile_crops(source_data, num_variations=4)
+        crops, _ = generate_profile_crops(source_data, num_variations=4)
         
         generated_photos = []
         
@@ -354,7 +422,8 @@ def generate_profile_photos_async(job_id):
                 photo_data = {
                     'index': crop['index'],
                     'url': photo_url,
-                    'style': crop['style']
+                    'style': crop['style'],
+                    'face_detected': face_detected
                 }
                 generated_photos.append(photo_data)
                 
