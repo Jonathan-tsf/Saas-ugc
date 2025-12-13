@@ -69,7 +69,7 @@ def detect_face_bounds(image_bytes):
         return None
 
 
-def smart_crop_to_square(image_bytes, face_bounds=None, padding_factor=0.5):
+def smart_crop_to_square(image_bytes, face_bounds=None, padding_factor=0.5, crop_style='standard'):
     """
     Crop image to square, centering on face if detected.
     
@@ -77,6 +77,7 @@ def smart_crop_to_square(image_bytes, face_bounds=None, padding_factor=0.5):
         image_bytes: Raw image bytes
         face_bounds: Dict with left, top, width, height (fractions)
         padding_factor: Extra padding around face (0.5 = 50% extra on each side)
+        crop_style: One of 'close_up', 'standard', 'wide', 'full'
     
     Returns:
         Cropped image as bytes (PNG)
@@ -101,10 +102,28 @@ def smart_crop_to_square(image_bytes, face_bounds=None, padding_factor=0.5):
         crop_size = min(crop_size, img_width, img_height)
         
     else:
-        # No face detected - use center crop
-        crop_size = min(img_width, img_height)
-        face_center_x = img_width / 2
-        face_center_y = img_height / 2
+        # No face detected - use different crop sizes based on style
+        # This creates variety even without face detection
+        min_dim = min(img_width, img_height)
+        
+        # Different crop sizes for different styles
+        crop_ratios = {
+            'close_up': 0.4,   # 40% of image - tight crop on upper portion
+            'standard': 0.55,  # 55% of image - medium crop
+            'wide': 0.75,      # 75% of image - wider view
+            'full': 1.0        # 100% - full square crop
+        }
+        crop_ratio = crop_ratios.get(crop_style, 0.55)
+        crop_size = int(min_dim * crop_ratio)
+        
+        # For close_up and standard, center on upper third (typical face position)
+        # For wide and full, center on middle
+        if crop_style in ['close_up', 'standard']:
+            face_center_x = img_width / 2
+            face_center_y = img_height * 0.35  # Upper portion where face usually is
+        else:
+            face_center_x = img_width / 2
+            face_center_y = img_height / 2
     
     # Calculate crop bounds
     half_crop = crop_size / 2
@@ -152,21 +171,22 @@ def generate_profile_crops(image_bytes, num_variations=4):
     if face_bounds:
         print(f"Face detected at: {face_bounds}")
     else:
-        print("No face detected, using center crop")
+        print("No face detected, using smart center crop with different sizes")
     
-    # Different padding factors for variety
+    # Different padding factors for variety (used when face is detected)
     padding_factors = [0.3, 0.5, 0.7, 1.0]  # Tighter to wider crops
     
     results = []
     for i, padding in enumerate(padding_factors):
         try:
-            cropped_bytes = smart_crop_to_square(image_bytes, face_bounds, padding)
+            style = CROP_STYLES[i]
+            cropped_bytes = smart_crop_to_square(image_bytes, face_bounds, padding, crop_style=style)
             results.append({
                 'index': i,
                 'bytes': cropped_bytes,
-                'style': CROP_STYLES[i]
+                'style': style
             })
-            print(f"Generated crop {i+1}/{num_variations}: {CROP_STYLES[i]}")
+            print(f"Generated crop {i+1}/{num_variations}: {style}")
         except Exception as e:
             print(f"Error generating crop {i}: {e}")
     

@@ -55,6 +55,7 @@ from handlers.showcase_generation import (
     start_showcase_generation,
     get_showcase_generation_status,
     generate_showcase_photos_async,
+    generate_showcase_scenes_async,
     select_showcase_photo,
     generate_scene,
     poll_scene_replicate
@@ -150,6 +151,12 @@ def lambda_handler(event, context):
     if 'action' in event and event['action'] == 'generate_profile_photos_async':
         job_id = event['job_id']
         generate_profile_photos_async(job_id)
+        return {'statusCode': 200, 'body': json.dumps({'success': True})}
+    
+    # Handle async showcase scene generation (Claude generates scene descriptions)
+    if 'action' in event and event['action'] == 'generate_showcase_scenes_async':
+        job_id = event['job_id']
+        generate_showcase_scenes_async(job_id)
         return {'statusCode': 200, 'body': json.dumps({'success': True})}
     
     http_method = event.get('httpMethod', '')

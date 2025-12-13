@@ -8,6 +8,7 @@ import json
 import uuid
 import base64
 import random
+import os
 import urllib.request
 import urllib.error
 import boto3
@@ -535,10 +536,15 @@ def save_showcase_image_to_s3(image_base64, ambassador_id, index):
 
 def start_showcase_generation(event):
     """
-    Start showcase generation - generates 15 scene descriptions with Claude
+    Start showcase generation - returns job_id immediately, generates scenes async
     POST /api/admin/ambassadors/showcase/generate
     
-    Returns immediately with scenes - frontend then calls generate_scene for each scene
+    This is now fully async:
+    1. Creates job in 'generating_scenes' status
+    2. Invokes Lambda async to generate scenes with Claude
+    3. Returns immediately with job_id
+    
+    Frontend polls /showcase/status to get scenes when ready
     """
     if not verify_admin(event):
         return response(401, {'error': 'Unauthorized'})
@@ -568,73 +574,145 @@ def start_showcase_generation(event):
     
     ambassador_gender = ambassador.get('gender', 'male')
     
-    # Step 1: Generate scene descriptions with Claude (synchronous - takes ~10-15s)
-    print(f"Generating scenes for ambassador {ambassador_id}...")
-    try:
-        scenes = generate_scene_descriptions_with_claude(available_categories, ambassador_gender)
-        print(f"Claude generated {len(scenes)} scenes")
-    except Exception as e:
-        print(f"ERROR calling Claude: {e}")
-        import traceback
-        traceback.print_exc()
-        scenes = generate_fallback_scenes(available_categories, ambassador_gender)
-        print(f"Using fallback scenes: {len(scenes)} scenes")
-    
-    # Convert scenes to list format
-    scenes_list = []
-    for i, (key, scene) in enumerate(scenes.items(), 1):
-        scene_id = str(uuid.uuid4())
-        scenes_list.append({
-            'scene_id': scene_id,
-            'scene_number': i,
-            'scene_description': scene['position'],
-            'outfit_category': scene['outfit_category'],
-            'generated_images': [],
-            'selected_image': None,
-            'status': 'pending'
-        })
-    
-    # Create job with scenes
+    # Create job immediately in 'generating_scenes' status
     job_id = str(uuid.uuid4())
     job = {
         'id': job_id,
         'job_id': job_id,
         'type': 'showcase_generation',
         'ambassador_id': ambassador_id,
-        'status': 'scenes_ready',  # Scenes are ready, images not yet generated
+        'ambassador_gender': ambassador_gender,
+        'available_categories': available_categories,
+        'status': 'generating_scenes',  # Claude is generating scene descriptions
         'total_scenes': NUM_SHOWCASE_PHOTOS,
         'completed_scenes': 0,
         'current_scene_number': 0,
-        'scenes': scenes_list,
-        'results': scenes_list,  # Frontend uses results
+        'scenes': [],
+        'results': [],
+        'error': None,
         'created_at': datetime.now().isoformat(),
         'updated_at': datetime.now().isoformat()
     }
     
     jobs_table.put_item(Item=job)
+    print(f"Created showcase job {job_id} for ambassador {ambassador_id}")
     
-    # Clear previous showcase photos and save new scenes
-    try:
-        ambassadors_table.update_item(
-            Key={'id': ambassador_id},
-            UpdateExpression='SET showcase_photos = :photos, updated_at = :updated',
-            ExpressionAttributeValues={
-                ':photos': scenes_list,
-                ':updated': datetime.now().isoformat()
-            }
-        )
-    except Exception as e:
-        print(f"Error saving showcase photos: {e}")
+    # Invoke Lambda async to generate scenes with Claude
+    payload = {
+        'action': 'generate_showcase_scenes_async',
+        'job_id': job_id
+    }
     
-    # Return job with scenes - frontend will call generate_scene for each
+    lambda_client.invoke(
+        FunctionName=os.environ.get('AWS_LAMBDA_FUNCTION_NAME', 'ugc-booking'),
+        InvocationType='Event',  # Asynchronous invocation
+        Payload=json.dumps(payload)
+    )
+    
+    # Return immediately with job_id - frontend polls /status
     return response(200, {
         'success': True,
         'job_id': job_id,
-        'status': 'scenes_ready',
+        'status': 'generating_scenes',
         'total_scenes': NUM_SHOWCASE_PHOTOS,
-        'scenes': scenes_list,
-        'message': f'Generated {len(scenes_list)} scene descriptions. Call /showcase/scene to generate images for each scene.'
+        'message': 'Generating scene descriptions with AI. Poll /showcase/status to get scenes when ready.'
     })
+
+
+def generate_showcase_scenes_async(job_id):
+    """
+    Generate scene descriptions with Claude asynchronously.
+    Called by Lambda invoke (InvocationType='Event').
+    Updates job in DynamoDB when complete.
+    """
+    print(f"[{job_id}] Starting async scene generation with Claude...")
+    
+    try:
+        # Get job from DynamoDB
+        result = jobs_table.get_item(Key={'id': job_id})
+        job = result.get('Item')
+        
+        if not job:
+            print(f"[{job_id}] Job not found")
+            return
+        
+        ambassador_id = job.get('ambassador_id')
+        ambassador_gender = job.get('ambassador_gender', 'male')
+        available_categories = job.get('available_categories', ['casual'])
+        
+        # Generate scenes with Claude
+        print(f"[{job_id}] Calling Claude to generate {NUM_SHOWCASE_PHOTOS} scenes...")
+        try:
+            scenes = generate_scene_descriptions_with_claude(available_categories, ambassador_gender)
+            print(f"[{job_id}] Claude generated {len(scenes)} scenes successfully")
+        except Exception as e:
+            print(f"[{job_id}] ERROR calling Claude: {e}")
+            import traceback
+            traceback.print_exc()
+            scenes = generate_fallback_scenes(available_categories, ambassador_gender)
+            print(f"[{job_id}] Using fallback scenes: {len(scenes)} scenes")
+        
+        # Convert scenes to list format
+        scenes_list = []
+        for i, (key, scene) in enumerate(scenes.items(), 1):
+            scene_id = str(uuid.uuid4())
+            scenes_list.append({
+                'scene_id': scene_id,
+                'scene_number': i,
+                'scene_description': scene['position'],
+                'outfit_category': scene['outfit_category'],
+                'generated_images': [],
+                'selected_image': None,
+                'status': 'pending'
+            })
+        
+        # Update job with scenes
+        jobs_table.update_item(
+            Key={'id': job_id},
+            UpdateExpression='SET #status = :status, scenes = :scenes, results = :results, updated_at = :updated',
+            ExpressionAttributeNames={'#status': 'status'},
+            ExpressionAttributeValues={
+                ':status': 'scenes_ready',
+                ':scenes': scenes_list,
+                ':results': scenes_list,
+                ':updated': datetime.now().isoformat()
+            }
+        )
+        
+        # Save scenes to ambassador record
+        try:
+            ambassadors_table.update_item(
+                Key={'id': ambassador_id},
+                UpdateExpression='SET showcase_photos = :photos, updated_at = :updated',
+                ExpressionAttributeValues={
+                    ':photos': scenes_list,
+                    ':updated': datetime.now().isoformat()
+                }
+            )
+        except Exception as e:
+            print(f"[{job_id}] Error saving showcase photos to ambassador: {e}")
+        
+        print(f"[{job_id}] Scene generation complete. {len(scenes_list)} scenes ready.")
+        
+    except Exception as e:
+        print(f"[{job_id}] Fatal error in scene generation: {e}")
+        import traceback
+        traceback.print_exc()
+        
+        # Mark job as error
+        try:
+            jobs_table.update_item(
+                Key={'id': job_id},
+                UpdateExpression='SET #status = :status, #error = :error, updated_at = :updated',
+                ExpressionAttributeNames={'#status': 'status', '#error': 'error'},
+                ExpressionAttributeValues={
+                    ':status': 'error',
+                    ':error': str(e),
+                    ':updated': datetime.now().isoformat()
+                }
+            )
+        except:
+            pass
 
 
 def generate_scene(event):
