@@ -14,7 +14,7 @@ from io import BytesIO
 
 from config import (
     response, decimal_to_python, verify_admin,
-    ambassadors_table, s3, S3_BUCKET, dynamodb, lambda_client
+    ambassadors_table, s3, S3_BUCKET, dynamodb, lambda_client, upload_to_s3
 )
 
 # PIL is imported lazily to avoid Lambda crash if Pillow binary is incompatible
@@ -407,17 +407,9 @@ def generate_profile_photos_async(job_id):
         
         for i, crop in enumerate(crops):
             try:
-                # Upload to S3
+                # Upload to S3 with cache headers
                 photo_key = f"ambassadors/{ambassador_id}/profile_options/profile_{i+1}_{uuid.uuid4().hex[:8]}.png"
-                
-                s3.put_object(
-                    Bucket=S3_BUCKET,
-                    Key=photo_key,
-                    Body=crop['bytes'],
-                    ContentType='image/png'
-                )
-                
-                photo_url = f"https://{S3_BUCKET}.s3.amazonaws.com/{photo_key}"
+                photo_url = upload_to_s3(photo_key, crop['bytes'], 'image/png', cache_days=365)
                 
                 photo_data = {
                     'index': crop['index'],

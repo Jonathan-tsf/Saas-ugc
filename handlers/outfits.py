@@ -9,7 +9,7 @@ from datetime import datetime
 
 from config import (
     response, decimal_to_python, verify_admin,
-    dynamodb, s3, S3_BUCKET
+    dynamodb, s3, S3_BUCKET, upload_to_s3
 )
 
 # DynamoDB table for outfits
@@ -108,18 +108,10 @@ def create_outfit(event):
     try:
         outfit_id = str(uuid.uuid4())
         
-        # Upload image to S3
+        # Upload image to S3 with cache headers
         image_key = f"outfits/{outfit_id}.png"
         image_data = base64.b64decode(image_base64)
-        
-        s3.put_object(
-            Bucket=S3_BUCKET,
-            Key=image_key,
-            Body=image_data,
-            ContentType='image/png'
-        )
-        
-        image_url = f"https://{S3_BUCKET}.s3.amazonaws.com/{image_key}"
+        image_url = upload_to_s3(image_key, image_data, 'image/png', cache_days=365)
         
         # Create outfit record
         outfit = {
@@ -195,15 +187,7 @@ def update_outfit(event):
         if 'image_base64' in body:
             image_key = f"outfits/{outfit_id}.png"
             image_data = base64.b64decode(body['image_base64'])
-            
-            s3.put_object(
-                Bucket=S3_BUCKET,
-                Key=image_key,
-                Body=image_data,
-                ContentType='image/png'
-            )
-            
-            image_url = f"https://{S3_BUCKET}.s3.amazonaws.com/{image_key}"
+            image_url = upload_to_s3(image_key, image_data, 'image/png', cache_days=365)
             update_expr += ", image_url = :image_url"
             expr_values[':image_url'] = image_url
         

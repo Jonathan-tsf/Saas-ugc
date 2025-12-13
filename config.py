@@ -59,6 +59,31 @@ def decimal_to_python(obj):
         return obj
 
 
+def upload_to_s3(key: str, body: bytes, content_type: str = 'image/png', cache_days: int = 365) -> str:
+    """
+    Upload file to S3 with proper cache headers for fast loading.
+    Returns the public URL.
+    
+    Args:
+        key: S3 object key (path)
+        body: File content as bytes
+        content_type: MIME type (default: image/png)
+        cache_days: Cache duration in days (default: 365)
+    
+    Returns:
+        Public S3 URL
+    """
+    cache_seconds = cache_days * 24 * 60 * 60
+    
+    s3.put_object(
+        Bucket=S3_BUCKET,
+        Key=key,
+        Body=body,
+        ContentType=content_type,
+        CacheControl=f'public, max-age={cache_seconds}, immutable'
+    )
+    
+    return f"https://{S3_BUCKET}.s3.amazonaws.com/{key}"
 
 
 def verify_admin(event):

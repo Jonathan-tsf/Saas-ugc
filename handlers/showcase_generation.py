@@ -16,7 +16,7 @@ from datetime import datetime
 
 from config import (
     response, decimal_to_python, verify_admin,
-    dynamodb, s3, S3_BUCKET, NANO_BANANA_API_KEY, REPLICATE_API_KEY
+    dynamodb, s3, S3_BUCKET, NANO_BANANA_API_KEY, REPLICATE_API_KEY, upload_to_s3
 )
 
 # DynamoDB tables
@@ -516,19 +516,13 @@ class QuotaExceededException(Exception):
 
 
 def save_showcase_image_to_s3(image_base64, ambassador_id, index):
-    """Save generated showcase image to S3 and return URL"""
+    """Save generated showcase image to S3 and return URL with cache headers"""
     try:
         image_data = base64.b64decode(image_base64)
         key = f"showcase_photos/{ambassador_id}/showcase_{index}_{uuid.uuid4().hex[:8]}.png"
         
-        s3.put_object(
-            Bucket=S3_BUCKET,
-            Key=key,
-            Body=image_data,
-            ContentType='image/png'
-        )
-        
-        return f"https://{S3_BUCKET}.s3.amazonaws.com/{key}"
+        # Use helper with cache headers for fast loading
+        return upload_to_s3(key, image_data, 'image/png', cache_days=365)
     except Exception as e:
         print(f"Error saving showcase image to S3: {e}")
         return None
