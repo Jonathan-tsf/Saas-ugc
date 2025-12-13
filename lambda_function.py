@@ -61,9 +61,11 @@ from handlers.showcase_generation import (
 )
 
 # Import profile photo generation handlers
-from handlers.transform import (
-    generate_profile_photos,
+from handlers.profile_generation import (
+    start_profile_generation,
+    get_profile_generation_status,
     select_profile_photo,
+    generate_profile_photos_async,
 )
 
 # Import authentication handlers
@@ -143,6 +145,13 @@ def lambda_handler(event, context):
         result = generate_scene(fake_event)
         print(f"Async scene generation result: {result}")
         return result
+    
+    # Handle async profile photo generation
+    if 'action' in event and event['action'] == 'generate_profile_photos_async':
+        job_id = event['job_id']
+        generate_profile_photos_async(job_id)
+        return {'statusCode': 200, 'body': json.dumps({'success': True})}
+    
     http_method = event.get('httpMethod', '')
     path = event.get('path', '')
     
@@ -214,8 +223,9 @@ def lambda_handler(event, context):
         ('POST', '/api/admin/ambassadors/showcase/scene'): generate_scene,
         ('POST', '/api/admin/ambassadors/showcase/scene/poll'): poll_scene_replicate,
         
-        # Admin profile photo generation
-        ('POST', '/api/admin/ambassadors/profile-photos/generate'): generate_profile_photos,
+        # Admin profile photo generation (async with polling)
+        ('POST', '/api/admin/ambassadors/profile-photos/generate'): start_profile_generation,
+        ('GET', '/api/admin/ambassadors/profile-photos/status'): get_profile_generation_status,
         ('POST', '/api/admin/ambassadors/profile-photos/select'): select_profile_photo,
     }
     

@@ -8,6 +8,7 @@ import requests
 import urllib.request
 import urllib.error
 from datetime import datetime
+from concurrent.futures import ThreadPoolExecutor, as_completed
 
 from config import (
     response, decimal_to_python, verify_admin,
@@ -791,12 +792,13 @@ def generate_profile_photos(event):
     ]
     
     generated_photos = []
+    styles = ['professional', 'social_media', 'business', 'lifestyle']
     
-    for i, prompt in enumerate(profile_prompts):
-        print(f"Generating profile photo {i+1}/4...")
-        
+    def generate_single_photo(args):
+        """Generate a single profile photo - for parallel execution"""
+        i, prompt = args
         try:
-            # Use Nano Banana Pro (Gemini 3 Pro Image Preview)
+            print(f"Generating profile photo {i+1}/4...")
             result_base64 = call_nano_banana_pro_profile(image_base64, prompt)
             
             if result_base64:
@@ -811,18 +813,32 @@ def generate_profile_photos(event):
                 )
                 
                 photo_url = f"https://{S3_BUCKET}.s3.amazonaws.com/{photo_key}"
-                generated_photos.append({
+                print(f"Profile photo {i+1} uploaded: {photo_url}")
+                return {
                     'index': i,
                     'url': photo_url,
-                    'prompt_style': ['professional', 'social_media', 'business', 'lifestyle'][i]
-                })
-                print(f"Profile photo {i+1} uploaded: {photo_url}")
+                    'prompt_style': styles[i]
+                }
             else:
                 print(f"Failed to generate profile photo {i+1}")
-                
+                return None
         except Exception as e:
             print(f"Error generating profile photo {i+1}: {e}")
-            continue
+            return None
+    
+    # Execute all 4 generations in parallel
+    print("Starting parallel profile photo generation...")
+    with ThreadPoolExecutor(max_workers=4) as executor:
+        futures = {executor.submit(generate_single_photo, (i, prompt)): i for i, prompt in enumerate(profile_prompts)}
+        
+        for future in as_completed(futures):
+            result = future.result()
+            if result:
+                generated_photos.append(result)
+    
+    # Sort by index
+    generated_photos.sort(key=lambda x: x['index'])
+    print(f"Parallel generation complete: {len(generated_photos)}/4 photos generated")
     
     if not generated_photos:
         return response(500, {'error': 'Failed to generate any profile photos'})
