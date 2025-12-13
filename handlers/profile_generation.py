@@ -17,8 +17,20 @@ from config import (
     ambassadors_table, s3, S3_BUCKET, dynamodb, lambda_client
 )
 
-# PIL for image processing
-from PIL import Image
+# PIL is imported lazily to avoid Lambda crash if Pillow binary is incompatible
+# This allows other handlers to work even if profile_generation isn't used
+Image = None
+
+def _ensure_pil():
+    """Lazy import PIL only when needed"""
+    global Image
+    if Image is None:
+        try:
+            from PIL import Image as PILImage
+            Image = PILImage
+        except ImportError as e:
+            print(f"PIL import error: {e}")
+            raise RuntimeError("Pillow is not available. Profile cropping requires a Lambda Layer with Pillow.")
 
 # AWS Rekognition client for face detection
 rekognition = boto3.client('rekognition', region_name='us-east-1')
@@ -69,6 +81,7 @@ def smart_crop_to_square(image_bytes, face_bounds=None, padding_factor=0.5):
     Returns:
         Cropped image as bytes (PNG)
     """
+    _ensure_pil()  # Lazy import PIL
     img = Image.open(BytesIO(image_bytes))
     img_width, img_height = img.size
     
