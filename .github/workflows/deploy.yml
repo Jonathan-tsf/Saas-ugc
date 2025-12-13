@@ -78,3 +78,4 @@ jobs:
           echo "Function: ${{ secrets.LAMBDA_FUNCTION_NAME }}"
           echo "Region: ${{ secrets.AWS_REGION }}"
           echo "Files included: lambda_function.py, config.py, handlers/"
+
