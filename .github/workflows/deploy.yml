@@ -59,6 +59,12 @@ jobs:
             --zip-file fileb://deployment.zip \
             --publish
 
+      - name: Add Pillow Lambda Layer
+        run: |
+          aws lambda update-function-configuration \
+            --function-name ${{ secrets.LAMBDA_FUNCTION_NAME }} \
+            --layers arn:aws:lambda:us-east-1:770693421928:layer:Klayers-p312-Pillow:3
+
       - name: Deployment successful
         run: |
           echo "✅ Lambda deployed successfully!"

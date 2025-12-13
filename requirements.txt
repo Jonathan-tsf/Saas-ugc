@@ -4,5 +4,5 @@
 # Required for Nano Banana Pro API calls
 requests==2.31.0
 
-# Required for image processing (smart crop)
-Pillow==10.4.0
+# Pillow is provided via Lambda Layer (arn:aws:lambda:us-east-1:770693421928:layer:Klayers-p312-Pillow:3)
+# Do NOT install via pip - it requires Linux binaries
