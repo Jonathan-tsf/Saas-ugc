@@ -1,97 +1,168 @@
 """
-Profile photo generation handlers using Nano Banana Pro API - ASYNC ARCHITECTURE
-Uses nano_banana_jobs table for job tracking with polling
+Profile photo generation handlers - SMART CROP (no AI generation)
+Simply crops existing photos to center on the face for profile use.
+Uses AWS Rekognition for face detection or falls back to center crop.
 """
 import json
 import uuid
-import base64
-import requests
+import boto3
 import urllib.request
 import os
 from datetime import datetime
 from decimal import Decimal
+from io import BytesIO
 
 from config import (
     response, decimal_to_python, verify_admin,
-    ambassadors_table, s3, S3_BUCKET, NANO_BANANA_API_KEY, dynamodb, lambda_client
+    ambassadors_table, s3, S3_BUCKET, dynamodb, lambda_client
 )
+
+# PIL for image processing
+from PIL import Image
+
+# AWS Rekognition client for face detection
+rekognition = boto3.client('rekognition', region_name='us-east-1')
 
 # Create jobs table reference
 jobs_table = dynamodb.Table('nano_banana_jobs')
 
-# Profile photo styles
-PROFILE_STYLES = ['professional', 'social_media', 'business', 'lifestyle']
+# Profile crop styles
+CROP_STYLES = ['close_up', 'standard', 'wide', 'full']
 
 
-def get_profile_prompts(gender):
-    """Get prompts for 4 different profile photo styles"""
-    return [
-        f"Create a professional profile photo of this {gender}. Square 1:1 ratio, face perfectly centered, clean neutral gray studio background, soft professional lighting, headshot from shoulders up, looking directly at camera with confident friendly expression. Keep the face identical to the input image.",
-        f"Create a modern social media profile photo of this {gender}. Square 1:1 ratio, face centered, minimalist white background, bright even lighting, upper body visible, natural relaxed expression, professional yet approachable. Keep the face identical to the input image.",
-        f"Create an elegant business profile photo of this {gender}. Square 1:1 ratio, face centered, soft gradient background from light gray to white, professional studio lighting with subtle rim light, head and shoulders framing, confident professional expression. Keep the face identical to the input image.",
-        f"Create a lifestyle profile photo of this {gender}. Square 1:1 ratio, face centered, blurred modern interior background with natural light, soft shadows, chest-up framing, warm friendly smile, authentic natural look. Keep the face identical to the input image."
-    ]
-
-
-def call_nano_banana_pro_profile(image_base64, prompt):
+def detect_face_bounds(image_bytes):
     """
-    Call Nano Banana Pro (Gemini 3 Pro Image Preview) for profile photo generation.
-    Uses 1:1 aspect ratio for profile photos.
+    Use AWS Rekognition to detect face bounding box.
+    Returns dict with left, top, width, height as fractions, or None if no face.
     """
-    if not NANO_BANANA_API_KEY:
-        raise Exception("NANO_BANANA_API_KEY not configured")
-    
-    api_url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-3-pro-image-preview:generateContent?key={NANO_BANANA_API_KEY}"
-    
-    headers = {
-        "Content-Type": "application/json"
-    }
-    
-    payload = {
-        "contents": [{
-            "parts": [
-                {"text": prompt},
-                {"inline_data": {"mime_type": "image/jpeg", "data": image_base64}}
-            ]
-        }],
-        "generationConfig": {
-            "responseModalities": ["TEXT", "IMAGE"],
-            "imageConfig": {
-                "aspectRatio": "1:1",
-                "imageSize": "1K"
-            }
-        }
-    }
-    
     try:
-        print(f"Calling Nano Banana Pro API for profile photo...")
-        api_response = requests.post(api_url, headers=headers, json=payload, timeout=180)
+        resp = rekognition.detect_faces(
+            Image={'Bytes': image_bytes},
+            Attributes=['DEFAULT']
+        )
         
-        if api_response.ok:
-            result = api_response.json()
-            
-            # Extract image from response
-            for candidate in result.get('candidates', []):
-                for part in candidate.get('content', {}).get('parts', []):
-                    if 'inlineData' in part:
-                        print("Nano Banana Pro profile generation successful")
-                        return part['inlineData']['data']
-            
-            print("No image in Nano Banana Pro response")
-            return None
-        else:
-            print(f"Nano Banana Pro API error: {api_response.status_code}")
-            print(f"Response: {api_response.text[:500]}")
-            return None
-            
-    except Exception as e:
-        print(f"Nano Banana Pro API error: {e}")
+        if resp['FaceDetails']:
+            # Get the largest/most prominent face
+            face = max(resp['FaceDetails'], key=lambda f: f['BoundingBox']['Width'] * f['BoundingBox']['Height'])
+            box = face['BoundingBox']
+            return {
+                'left': box['Left'],
+                'top': box['Top'],
+                'width': box['Width'],
+                'height': box['Height']
+            }
         return None
+    except Exception as e:
+        print(f"Rekognition error: {e}")
+        return None
+
+
+def smart_crop_to_square(image_bytes, face_bounds=None, padding_factor=0.5):
+    """
+    Crop image to square, centering on face if detected.
+    
+    Args:
+        image_bytes: Raw image bytes
+        face_bounds: Dict with left, top, width, height (fractions)
+        padding_factor: Extra padding around face (0.5 = 50% extra on each side)
+    
+    Returns:
+        Cropped image as bytes (PNG)
+    """
+    img = Image.open(BytesIO(image_bytes))
+    img_width, img_height = img.size
+    
+    if face_bounds:
+        # Calculate face center in pixels
+        face_center_x = (face_bounds['left'] + face_bounds['width'] / 2) * img_width
+        face_center_y = (face_bounds['top'] + face_bounds['height'] / 2) * img_height
+        
+        # Calculate crop size based on face size with padding
+        face_size = max(face_bounds['width'] * img_width, face_bounds['height'] * img_height)
+        crop_size = int(face_size * (1 + padding_factor * 2))
+        
+        # Ensure minimum crop size
+        crop_size = max(crop_size, min(img_width, img_height) // 2)
+        
+        # Ensure crop doesn't exceed image bounds
+        crop_size = min(crop_size, img_width, img_height)
+        
+    else:
+        # No face detected - use center crop
+        crop_size = min(img_width, img_height)
+        face_center_x = img_width / 2
+        face_center_y = img_height / 2
+    
+    # Calculate crop bounds
+    half_crop = crop_size / 2
+    left = int(max(0, face_center_x - half_crop))
+    top = int(max(0, face_center_y - half_crop))
+    
+    # Adjust if crop goes beyond image bounds
+    if left + crop_size > img_width:
+        left = img_width - crop_size
+    if top + crop_size > img_height:
+        top = img_height - crop_size
+    
+    # Ensure non-negative
+    left = max(0, int(left))
+    top = max(0, int(top))
+    crop_size = int(crop_size)
+    
+    right = left + crop_size
+    bottom = top + crop_size
+    
+    # Crop
+    cropped = img.crop((left, top, right, bottom))
+    
+    # Resize to standard profile size (512x512)
+    cropped = cropped.resize((512, 512), Image.Resampling.LANCZOS)
+    
+    # Convert to bytes
+    output = BytesIO()
+    cropped.save(output, format='PNG', quality=95)
+    output.seek(0)
+    
+    return output.read()
+
+
+def generate_profile_crops(image_bytes, num_variations=4):
+    """
+    Generate multiple crop variations from the same image.
+    Different padding factors to give user choice.
+    
+    Returns list of cropped image data.
+    """
+    # Detect face
+    face_bounds = detect_face_bounds(image_bytes)
+    
+    if face_bounds:
+        print(f"Face detected at: {face_bounds}")
+    else:
+        print("No face detected, using center crop")
+    
+    # Different padding factors for variety
+    padding_factors = [0.3, 0.5, 0.7, 1.0]  # Tighter to wider crops
+    
+    results = []
+    for i, padding in enumerate(padding_factors):
+        try:
+            cropped_bytes = smart_crop_to_square(image_bytes, face_bounds, padding)
+            results.append({
+                'index': i,
+                'bytes': cropped_bytes,
+                'style': CROP_STYLES[i]
+            })
+            print(f"Generated crop {i+1}/{num_variations}: {CROP_STYLES[i]}")
+        except Exception as e:
+            print(f"Error generating crop {i}: {e}")
+    
+    return results
 
 
 def start_profile_generation(event):
     """
-    Start profile photo generation - Returns job_id immediately, generates images async
+    Start profile photo cropping - Returns job_id immediately, crops images async
     POST /api/admin/ambassadors/profile-photos/generate
     Body: { ambassador_id, source_image_index (optional) }
     """
@@ -144,7 +215,6 @@ def start_profile_generation(event):
     
     # Create job ID
     job_id = str(uuid.uuid4())
-    gender = ambassador.get('gender', 'female')
     name = ambassador.get('name', 'Unknown')
     
     # Store source image in S3
@@ -160,10 +230,9 @@ def start_profile_generation(event):
     # Create job in DynamoDB
     job = {
         'id': job_id,
-        'type': 'PROFILE_PHOTO_JOB',
+        'type': 'PROFILE_CROP_JOB',
         'ambassador_id': ambassador_id,
         'ambassador_name': name,
-        'gender': gender,
         'source_image_url': source_s3_url,
         'source_s3_key': source_key,
         'status': 'generating',  # generating, completed, error
@@ -177,7 +246,7 @@ def start_profile_generation(event):
     
     jobs_table.put_item(Item=job)
     
-    # Invoke Lambda asynchronously to generate photos in background
+    # Invoke Lambda asynchronously to crop photos in background
     payload = {
         'action': 'generate_profile_photos_async',
         'job_id': job_id
@@ -194,16 +263,17 @@ def start_profile_generation(event):
         'success': True,
         'job_id': job_id,
         'status': 'generating',
-        'message': 'Profile photo generation started. Poll /status endpoint to get progress.'
+        'message': 'Profile photo cropping started. Poll /status endpoint to get progress.'
     })
 
 
 def generate_profile_photos_async(job_id):
     """
-    Generate profile photos asynchronously - called by Lambda invoke
-    Updates DynamoDB progressively as each photo is generated
+    Generate profile photo crops asynchronously - called by Lambda invoke
+    Uses smart crop with face detection (no AI generation)
+    Updates DynamoDB progressively as each crop is generated
     """
-    print(f"[{job_id}] Starting async profile photo generation...")
+    print(f"[{job_id}] Starting async profile photo cropping...")
     
     try:
         # Get job from DynamoDB
@@ -218,56 +288,43 @@ def generate_profile_photos_async(job_id):
         source_key = job.get('source_s3_key')
         source_obj = s3.get_object(Bucket=S3_BUCKET, Key=source_key)
         source_data = source_obj['Body'].read()
-        image_base64 = base64.b64encode(source_data).decode('utf-8')
         
-        gender = job.get('gender', 'female')
         ambassador_id = job.get('ambassador_id')
-        prompts = get_profile_prompts(gender)
+        
+        # Generate crop variations (smart crop with face detection)
+        crops = generate_profile_crops(source_data, num_variations=4)
         
         generated_photos = []
         
-        # Generate each photo one by one, updating progress
-        for i, prompt in enumerate(prompts):
+        for i, crop in enumerate(crops):
             try:
-                print(f"[{job_id}] Generating profile photo {i+1}/4...")
+                # Upload to S3
+                photo_key = f"ambassadors/{ambassador_id}/profile_options/profile_{i+1}_{uuid.uuid4().hex[:8]}.png"
                 
-                result_base64 = call_nano_banana_pro_profile(image_base64, prompt)
+                s3.put_object(
+                    Bucket=S3_BUCKET,
+                    Key=photo_key,
+                    Body=crop['bytes'],
+                    ContentType='image/png'
+                )
                 
-                if result_base64:
-                    # Upload to S3
-                    photo_key = f"ambassadors/{ambassador_id}/profile_options/profile_{i+1}_{uuid.uuid4().hex[:8]}.png"
-                    
-                    s3.put_object(
-                        Bucket=S3_BUCKET,
-                        Key=photo_key,
-                        Body=base64.b64decode(result_base64),
-                        ContentType='image/png'
-                    )
-                    
-                    photo_url = f"https://{S3_BUCKET}.s3.amazonaws.com/{photo_key}"
-                    
-                    photo_data = {
-                        'index': i,
-                        'url': photo_url,
-                        'style': PROFILE_STYLES[i]
-                    }
-                    generated_photos.append(photo_data)
-                    
-                    print(f"[{job_id}] ✓ Profile photo {i+1}/4 uploaded: {photo_url}")
-                else:
-                    print(f"[{job_id}] ✗ Failed to generate profile photo {i+1}")
-                    generated_photos.append({
-                        'index': i,
-                        'error': 'Generation failed',
-                        'style': PROFILE_STYLES[i]
-                    })
+                photo_url = f"https://{S3_BUCKET}.s3.amazonaws.com/{photo_key}"
+                
+                photo_data = {
+                    'index': crop['index'],
+                    'url': photo_url,
+                    'style': crop['style']
+                }
+                generated_photos.append(photo_data)
+                
+                print(f"[{job_id}] ✓ Profile crop {i+1}/4 uploaded: {photo_url}")
                 
             except Exception as e:
-                print(f"[{job_id}] ✗ Error generating profile photo {i+1}: {e}")
+                print(f"[{job_id}] ✗ Error uploading crop {i+1}: {e}")
                 generated_photos.append({
                     'index': i,
                     'error': str(e),
-                    'style': PROFILE_STYLES[i]
+                    'style': crop.get('style', 'unknown')
                 })
             
             # Update progress in DynamoDB after each photo
@@ -310,10 +367,10 @@ def generate_profile_photos_async(job_id):
             }
         )
         
-        print(f"[{job_id}] Profile photo generation completed: {len(successful_photos)}/4 successful")
+        print(f"[{job_id}] Profile photo cropping completed: {len(successful_photos)}/4 successful")
         
     except Exception as e:
-        print(f"[{job_id}] Fatal error in async generation: {e}")
+        print(f"[{job_id}] Fatal error in async cropping: {e}")
         jobs_table.update_item(
             Key={'id': job_id},
             UpdateExpression='SET #status = :status, error = :error, updated_at = :updated',

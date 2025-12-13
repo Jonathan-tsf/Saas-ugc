@@ -3,3 +3,6 @@
 
 # Required for Nano Banana Pro API calls
 requests==2.31.0
+
+# Required for image processing (smart crop)
+Pillow==10.4.0
