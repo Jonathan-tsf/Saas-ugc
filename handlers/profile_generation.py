@@ -234,9 +234,15 @@ def start_profile_generation(event):
     """
     Start profile photo cropping - Returns job_id immediately, crops images async
     POST /api/admin/ambassadors/profile-photos/generate
-    Body: { ambassador_id, source_image_index (optional) }
+    Body: { ambassador_id }
     
-    Will try photo_profile first, then showcase photos, until a face is detected.
+    Sources (up to 10 images total):
+    - Showcase photos (generated outfit photos with AI faces)
+    - Outfit generation results (outfit photos)
+    - Current profile photo
+    - Base photos
+    
+    Only photos with detected faces will be used for profile crops.
     """
     if not verify_admin(event):
         return response(401, {'error': 'Unauthorized'})
@@ -261,17 +267,11 @@ def start_profile_generation(event):
         print(f"Error fetching ambassador: {e}")
         return response(500, {'error': 'Failed to fetch ambassador'})
     
-    # Get source image (from showcase photos or profile photo)
-    # showcase_photos contains objects with 'selected_image' field
-    showcase_photos_data = ambassador.get('showcase_photos', [])
-    photo_list_base = ambassador.get('photo_list_base_array', [])
-    current_profile = ambassador.get('photo_profile', '')
-    
-    # Build list of candidate images: SHOWCASE photos FIRST (they have AI-generated faces)
-    # Then profile photo, then base photos
+    # Build list of candidate images from multiple sources
     candidate_images = []
     
-    # PRIORITY 1: Showcase selected images (AI-generated vitrine photos with faces)
+    # SOURCE 1: Showcase selected images (AI-generated photos with faces)
+    showcase_photos_data = ambassador.get('showcase_photos', [])
     if showcase_photos_data:
         for photo_obj in showcase_photos_data:
             if isinstance(photo_obj, dict):
@@ -279,11 +279,24 @@ def start_profile_generation(event):
                 if selected_img and selected_img not in candidate_images:
                     candidate_images.append(selected_img)
     
-    # PRIORITY 2: Current profile photo
+    # SOURCE 2: Outfit generation results (outfit photos generated)
+    outfit_photos = ambassador.get('outfit_photos', [])
+    if outfit_photos:
+        for photo in outfit_photos:
+            if isinstance(photo, dict):
+                img_url = photo.get('image_url') or photo.get('url')
+            else:
+                img_url = photo
+            if img_url and img_url not in candidate_images:
+                candidate_images.append(img_url)
+    
+    # SOURCE 3: Current profile photo
+    current_profile = ambassador.get('photo_profile', '')
     if current_profile and current_profile not in candidate_images:
         candidate_images.append(current_profile)
     
-    # PRIORITY 3: Base photos as fallback
+    # SOURCE 4: Base photos array
+    photo_list_base = ambassador.get('photo_list_base_array', [])
     if photo_list_base:
         for photo in photo_list_base:
             if photo and photo not in candidate_images:
@@ -292,6 +305,8 @@ def start_profile_generation(event):
     if not candidate_images:
         return response(400, {'error': 'No source image available for this ambassador'})
     
+    # Limit to 10 images max
+    candidate_images = candidate_images[:10]
     print(f"Found {len(candidate_images)} candidate images for face detection")
     
     # Download first image to start (will try others in async if no face found)
@@ -327,10 +342,10 @@ def start_profile_generation(event):
         'ambassador_name': name,
         'source_image_url': source_s3_url,
         'source_s3_key': source_key,
-        'candidate_images': candidate_images,  # All images to try for face detection
+        'candidate_images': candidate_images,  # Up to 10 images to scan for faces
         'status': 'generating',  # generating, completed, error
         'progress': Decimal('0'),
-        'total_photos': 16,  # 4 images x 4 zoom levels
+        'total_photos': 0,  # Will be updated once we know how many faces are detected
         'generated_photos': [],
         'error': None,
         'created_at': datetime.now().isoformat(),
@@ -363,11 +378,16 @@ def start_profile_generation(event):
 def generate_profile_photos_async(job_id):
     """
     Generate profile photo crops asynchronously - called by Lambda invoke
-    Uses up to 4 showcase photos × 4 zoom levels = 16 photos total
-    Each photo gets ALL zoom levels for maximum variety
+    
+    NEW LOGIC:
+    - Uses showcase photos + outfit photos as sources (up to 10 images)
+    - Only keeps photos where a face is detected by Rekognition
+    - Generates 4 zoom levels for each photo with detected face
+    - Ignores photos without face detection
+    
     Updates DynamoDB progressively as each crop is generated
     """
-    print(f"[{job_id}] Starting async profile photo cropping (16 photos mode: 4 images × 4 zooms)...")
+    print(f"[{job_id}] Starting async profile photo cropping...")
     
     try:
         # Get job from DynamoDB
@@ -381,10 +401,9 @@ def generate_profile_photos_async(job_id):
         ambassador_id = job.get('ambassador_id')
         candidate_images = job.get('candidate_images', [])
         
-        print(f"[{job_id}] Found {len(candidate_images)} candidate images")
+        print(f"[{job_id}] Found {len(candidate_images)} candidate images to scan for faces")
         
-        # 4 zoom levels to apply to each image
-        # Padding = multiplier for face size. Higher = more background visible
+        # 4 zoom levels to apply to each image WITH FACE DETECTED
         zoom_configs = [
             {'padding': 0.5, 'style': 'close_up'},    # Zoom serré - visage presque plein cadre
             {'padding': 1.5, 'style': 'standard'},    # Zoom standard - tête et épaules
@@ -393,50 +412,75 @@ def generate_profile_photos_async(job_id):
         ]
         
         generated_photos = []
-        total_photos = 16  # 4 images × 4 zooms
-        photo_index = 0
+        images_with_faces = []
         
-        # Use up to 4 source images
-        images_to_process = candidate_images[:4]
+        # PHASE 1: Download and detect faces in all candidate images (up to 10)
+        images_to_scan = candidate_images[:10]
+        print(f"[{job_id}] Phase 1: Scanning {len(images_to_scan)} images for face detection...")
         
-        # If less than 4 images, repeat the first ones to fill
-        while len(images_to_process) < 4 and len(candidate_images) > 0:
-            images_to_process.append(candidate_images[len(images_to_process) % len(candidate_images)])
-        
-        print(f"[{job_id}] Processing {len(images_to_process)} images × 4 zoom levels = {total_photos} photos")
-        
-        # Download all images first
-        downloaded_images = []
-        for i, img_url in enumerate(images_to_process):
+        for i, img_url in enumerate(images_to_scan):
             try:
-                print(f"[{job_id}] Downloading image {i+1}/4: {img_url[:50]}...")
+                print(f"[{job_id}] Downloading image {i+1}/{len(images_to_scan)}: {img_url[:60]}...")
                 req = urllib.request.Request(img_url)
                 with urllib.request.urlopen(req, timeout=30) as img_response:
                     image_data = img_response.read()
-                downloaded_images.append({'url': img_url, 'data': image_data})
-            except Exception as e:
-                print(f"[{job_id}] Error downloading image {i+1}: {e}")
-                downloaded_images.append(None)
-        
-        # Generate 16 photos: each image × each zoom level
-        for img_idx, img_info in enumerate(downloaded_images):
-            if img_info is None:
-                # Skip failed downloads, but add placeholder entries
-                for zoom_config in zoom_configs:
-                    generated_photos.append({
-                        'index': photo_index,
-                        'image_index': img_idx,
-                        'error': 'Image download failed',
-                        'style': zoom_config['style']
+                
+                # Detect face
+                face_bounds = detect_face_bounds(image_data)
+                
+                if face_bounds:
+                    print(f"[{job_id}] ✓ Face detected in image {i+1}")
+                    images_with_faces.append({
+                        'url': img_url,
+                        'data': image_data,
+                        'face_bounds': face_bounds
                     })
-                    photo_index += 1
-                continue
-            
+                else:
+                    print(f"[{job_id}] ✗ No face in image {i+1} - skipping")
+                    
+            except Exception as e:
+                print(f"[{job_id}] ✗ Error downloading image {i+1}: {e}")
+        
+        print(f"[{job_id}] Phase 1 complete: {len(images_with_faces)} images with faces found")
+        
+        if len(images_with_faces) == 0:
+            # No faces found in any image
+            jobs_table.update_item(
+                Key={'id': job_id},
+                UpdateExpression='SET #status = :status, error = :error, updated_at = :updated',
+                ExpressionAttributeNames={'#status': 'status'},
+                ExpressionAttributeValues={
+                    ':status': 'error',
+                    ':error': 'Aucun visage détecté dans les images disponibles',
+                    ':updated': datetime.now().isoformat()
+                }
+            )
+            return
+        
+        # PHASE 2: Generate 4 zoom levels for each image with face
+        total_photos = len(images_with_faces) * 4  # X images × 4 zooms
+        print(f"[{job_id}] Phase 2: Generating {total_photos} crops ({len(images_with_faces)} images × 4 zooms)")
+        
+        # Update job with new total
+        jobs_table.update_item(
+            Key={'id': job_id},
+            UpdateExpression='SET total_photos = :total, updated_at = :updated',
+            ExpressionAttributeValues={
+                ':total': total_photos,
+                ':updated': datetime.now().isoformat()
+            }
+        )
+        
+        photo_index = 0
+        for img_idx, img_info in enumerate(images_with_faces):
             for zoom_idx, zoom_config in enumerate(zoom_configs):
                 try:
-                    # Generate crop with this zoom level
-                    cropped_bytes, face_detected = generate_single_profile_crop(
+                    _ensure_pil()
+                    
+                    # Crop using the detected face bounds
+                    cropped_bytes = smart_crop_to_square(
                         img_info['data'],
+                        img_info['face_bounds'],
                         padding_factor=zoom_config['padding'],
                         crop_style=zoom_config['style']
                     )
@@ -448,35 +492,21 @@ def generate_profile_photos_async(job_id):
                         
                         photo_data = {
                             'index': photo_index,
-                            'image_index': img_idx,  # Which source image (0-3)
-                            'zoom_index': zoom_idx,  # Which zoom level (0-3)
+                            'image_index': img_idx,
+                            'zoom_index': zoom_idx,
                             'url': photo_url,
                             'style': zoom_config['style'],
-                            'face_detected': face_detected,
+                            'face_detected': True,
                             'source_image': img_info['url'][:100]
                         }
                         generated_photos.append(photo_data)
                         
-                        print(f"[{job_id}] ✓ Photo {photo_index+1}/16 (img{img_idx+1}/{zoom_config['style']}) - face:{face_detected}")
+                        print(f"[{job_id}] ✓ Photo {photo_index+1}/{total_photos} (img{img_idx+1}/{zoom_config['style']})")
                     else:
-                        generated_photos.append({
-                            'index': photo_index,
-                            'image_index': img_idx,
-                            'zoom_index': zoom_idx,
-                            'error': 'Failed to crop image',
-                            'style': zoom_config['style']
-                        })
-                        print(f"[{job_id}] ✗ Failed photo {photo_index+1}/16")
+                        print(f"[{job_id}] ✗ Failed to crop photo {photo_index+1}")
                         
                 except Exception as e:
-                    print(f"[{job_id}] ✗ Error photo {photo_index+1}/16: {e}")
-                    generated_photos.append({
-                        'index': photo_index,
-                        'image_index': img_idx,
-                        'zoom_index': zoom_idx,
-                        'error': str(e),
-                        'style': zoom_config['style']
-                    })
+                    print(f"[{job_id}] ✗ Error photo {photo_index+1}/{total_photos}: {e}")
                 
                 photo_index += 1
                 
@@ -493,17 +523,16 @@ def generate_profile_photos_async(job_id):
                 )
         
         # Mark job as completed
-        successful_photos = [p for p in generated_photos if 'url' in p]
-        final_status = 'completed' if successful_photos else 'error'
+        final_status = 'completed' if generated_photos else 'error'
         
         # Also save to ambassador profile_photo_options
-        if successful_photos:
+        if generated_photos:
             try:
                 ambassadors_table.update_item(
                     Key={'id': ambassador_id},
                     UpdateExpression="SET profile_photo_options = :options, updated_at = :updated",
                     ExpressionAttributeValues={
-                        ':options': successful_photos,
+                        ':options': generated_photos,
                         ':updated': datetime.now().isoformat()
                     }
                 )
@@ -520,7 +549,20 @@ def generate_profile_photos_async(job_id):
             }
         )
         
-        print(f"[{job_id}] Profile photo cropping completed: {len(successful_photos)}/16 successful")
+        print(f"[{job_id}] Profile photo cropping completed: {len(generated_photos)} photos from {len(images_with_faces)} images")
+        
+    except Exception as e:
+        print(f"[{job_id}] Fatal error in async cropping: {e}")
+        jobs_table.update_item(
+            Key={'id': job_id},
+            UpdateExpression='SET #status = :status, error = :error, updated_at = :updated',
+            ExpressionAttributeNames={'#status': 'status'},
+            ExpressionAttributeValues={
+                ':status': 'error',
+                ':error': str(e),
+                ':updated': datetime.now().isoformat()
+            }
+        )
         
     except Exception as e:
         print(f"[{job_id}] Fatal error in async cropping: {e}")
