@@ -244,22 +244,24 @@ Exemples de bonnes descriptions:
 
 def generate_outfit_variations_descriptions(image_base64: str, original_description: str) -> list:
     """
-    Use AWS Bedrock Claude Sonnet to generate 10 variation descriptions for an outfit.
+    Use AWS Bedrock Claude Sonnet to generate 6 variation descriptions for an outfit.
     These descriptions will be used to generate new outfit images with Nano Banana Pro.
+    
+    Note: Reduced from 10 to 6 to stay under API Gateway 29-second timeout.
     
     Args:
         image_base64: Base64 encoded image of the original outfit
         original_description: The original outfit description
     
     Returns:
-        list of 10 variation description strings
+        list of 6 variation description strings
     """
     # Claude Sonnet 4.5 model ID - use 'us.' prefix (same as showcase_generation.py)
     model_id = "us.anthropic.claude-sonnet-4-5-20250929-v1:0"
     
     prompt = f"""Regarde cette image de vêtement. La description originale est: "{original_description}"
 
-Génère exactement 10 variations créatives de ce vêtement. Chaque variation doit:
+Génère exactement 6 variations créatives de ce vêtement. Chaque variation doit:
 - Garder le même TYPE de vêtement (si c'est un t-shirt, reste un t-shirt)
 - Changer les couleurs, motifs, ou style de manière créative
 - Être réaliste et vendable comme vêtement de sport/fitness
@@ -271,8 +273,10 @@ Réponds UNIQUEMENT avec du JSON valide:
 {{"variations": [
     "Description variation 1...",
     "Description variation 2...",
-    ...
-    "Description variation 10..."
+    "Description variation 3...",
+    "Description variation 4...",
+    "Description variation 5...",
+    "Description variation 6..."
 ]}}
 
 Exemples de bonnes variations pour un "T-shirt noir Nike":
@@ -331,22 +335,21 @@ Exemples de bonnes variations pour un "T-shirt noir Nike":
         result = json.loads(json_text)
         variations = result.get('variations', [])
         
-        # Ensure we have exactly 10 variations
-        if len(variations) < 10:
+        # Ensure we have exactly 6 variations (reduced from 10 to fit under API Gateway timeout)
+        if len(variations) < 6:
             # Pad with generic variations if needed
-            base_colors = ['rouge', 'bleu', 'vert', 'jaune', 'orange', 'violet', 'rose', 'blanc', 'gris', 'beige']
-            while len(variations) < 10:
+            base_colors = ['rouge', 'bleu', 'vert', 'jaune', 'orange', 'violet']
+            while len(variations) < 6:
                 color = base_colors[len(variations) % len(base_colors)]
                 variations.append(f"{original_description} en {color}")
         
         print(f"Generated {len(variations)} outfit variations")
-        return variations[:10]
+        return variations[:6]
         
     except Exception as e:
         print(f"Error generating outfit variations: {e}")
         # Return basic color variations on error
-        colors = ['rouge', 'bleu royal', 'vert émeraude', 'jaune soleil', 'orange vif', 
-                  'violet', 'rose fuchsia', 'blanc pur', 'gris anthracite', 'beige sable']
+        colors = ['rouge', 'bleu royal', 'vert émeraude', 'jaune soleil', 'orange vif', 'violet']
         return [f"{original_description} en {color}" for color in colors]
 
 

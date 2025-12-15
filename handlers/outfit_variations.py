@@ -129,12 +129,14 @@ Requirements:
 
 def generate_outfit_variations(event):
     """
-    Generate 10 variations of an outfit - POST /api/admin/outfits/{id}/variations
+    Generate 6 variations of an outfit - POST /api/admin/outfits/{id}/variations
+    
+    Note: Reduced from 10 to 6 variations to stay under API Gateway 29-second timeout.
     
     1. Fetches the outfit from DynamoDB
     2. Downloads the outfit image from S3
-    3. Uses Bedrock Claude to generate 10 variation descriptions
-    4. Uses Nano Banana Pro to generate 10 variation images in parallel
+    3. Uses Bedrock Claude to generate 6 variation descriptions
+    4. Uses Nano Banana Pro to generate 6 variation images in parallel
     5. Returns all variations with base64 images
     
     The user will then select which variation they want to apply.
