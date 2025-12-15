@@ -397,13 +397,13 @@ def generate_showcase_videos_async(job_id: str):
     Called by Lambda invoke.
     
     Flow:
-    1. For each selected photo, generate 2 video prompts with Bedrock
-    2. Submit each video to Replicate Kling API
-    3. Poll for completion
+    1. For each selected photo, generate 2 video prompts with Bedrock (IN PARALLEL)
+    2. Submit ALL videos to Replicate Kling API simultaneously (PARALLEL)
+    3. Poll ALL for completion
     4. Download and save to S3
     5. Update ambassador record
     """
-    print(f"[{job_id}] Starting async showcase video generation...")
+    print(f"[{job_id}] Starting async showcase video generation (PARALLEL MODE)...")
     
     try:
         # Get job
@@ -418,58 +418,91 @@ def generate_showcase_videos_async(job_id: str):
         selected_photos = job.get('selected_photos', [])
         total_videos = int(job.get('total_videos', 0))
         
-        print(f"[{job_id}] Generating {total_videos} videos for {len(selected_photos)} photos")
+        print(f"[{job_id}] Generating {total_videos} videos for {len(selected_photos)} photos (PARALLEL)")
         
-        # PHASE 1: Generate prompts with Bedrock (analyzing the actual image)
+        # PHASE 1: Generate ALL prompts with Bedrock first
         video_tasks = []
         
         for photo in selected_photos:
             image_url = photo.get('image_url')
             scene_type = photo.get('scene_type', '')
             
-            # Generate 2 different video prompts for each photo
+            # Initialize tasks with generating_prompt status
             for video_num in range(2):
-                try:
-                    # Use image URL directly - Bedrock will analyze the image
-                    prompt_result = generate_video_prompt_with_bedrock(image_url, scene_type)
-                    
-                    video_tasks.append({
-                        'photo_index': photo.get('index'),
-                        'video_num': video_num,
-                        'image_url': image_url,
-                        'prompt': prompt_result['prompt'],
-                        'negative_prompt': prompt_result['negative_prompt'],
-                        'status': 'pending',
-                        'replicate_id': None,
-                        'output_url': None,
-                        'error': None
-                    })
-                    
-                    print(f"[{job_id}] Generated prompt for photo {photo.get('index')} video {video_num+1}")
-                    
-                except Exception as e:
-                    print(f"[{job_id}] Error generating prompt: {e}")
-                    video_tasks.append({
-                        'photo_index': photo.get('index'),
-                        'video_num': video_num,
-                        'image_url': image_url,
-                        'status': 'error',
-                        'error': str(e)
-                    })
+                video_tasks.append({
+                    'photo_index': photo.get('index'),
+                    'video_num': video_num,
+                    'image_url': image_url,
+                    'prompt': None,
+                    'negative_prompt': DEFAULT_NEGATIVE_PROMPT,
+                    'status': 'generating_prompt',
+                    'replicate_id': None,
+                    'output_url': None,
+                    'error': None
+                })
         
-        # Update job with video tasks
+        # Update job to show prompt generation phase
         jobs_table.update_item(
             Key={'id': job_id},
-            UpdateExpression='SET video_tasks = :tasks, #status = :status, updated_at = :updated',
+            UpdateExpression='SET video_tasks = :tasks, #status = :status, progress = :prog, updated_at = :updated',
             ExpressionAttributeNames={'#status': 'status'},
             ExpressionAttributeValues={
                 ':tasks': video_tasks,
+                ':status': 'generating_prompts',
+                ':prog': Decimal('5'),
+                ':updated': datetime.now().isoformat()
+            }
+        )
+        
+        # Now generate prompts (one per photo, shared between both videos)
+        prompt_cache = {}  # Cache prompts per image_url
+        for i, task in enumerate(video_tasks):
+            image_url = task['image_url']
+            
+            # Check cache first (both videos from same photo share prompt)
+            if image_url in prompt_cache:
+                task['prompt'] = prompt_cache[image_url]['prompt']
+                task['negative_prompt'] = prompt_cache[image_url]['negative_prompt']
+                task['status'] = 'pending'
+                print(f"[{job_id}] Reused cached prompt for task {i+1}")
+            else:
+                try:
+                    prompt_result = generate_video_prompt_with_bedrock(image_url, '')
+                    prompt_cache[image_url] = prompt_result
+                    task['prompt'] = prompt_result['prompt']
+                    task['negative_prompt'] = prompt_result['negative_prompt']
+                    task['status'] = 'pending'
+                    print(f"[{job_id}] Generated prompt for task {i+1}: {task['prompt'][:50]}...")
+                except Exception as e:
+                    print(f"[{job_id}] Error generating prompt for task {i+1}: {e}")
+                    task['status'] = 'error'
+                    task['error'] = str(e)
+            
+            # Update progress (5-20% for prompts)
+            progress = Decimal(str(5 + (i + 1) / len(video_tasks) * 15))
+            jobs_table.update_item(
+                Key={'id': job_id},
+                UpdateExpression='SET video_tasks = :tasks, progress = :prog, updated_at = :updated',
+                ExpressionAttributeValues={
+                    ':tasks': video_tasks,
+                    ':prog': progress,
+                    ':updated': datetime.now().isoformat()
+                }
+            )
+        
+        # PHASE 2: Submit ALL videos to Replicate IN PARALLEL (fire all at once)
+        print(f"[{job_id}] Submitting ALL {total_videos} videos to Replicate in parallel...")
+        
+        jobs_table.update_item(
+            Key={'id': job_id},
+            UpdateExpression='SET #status = :status, updated_at = :updated',
+            ExpressionAttributeNames={'#status': 'status'},
+            ExpressionAttributeValues={
                 ':status': 'generating_videos',
                 ':updated': datetime.now().isoformat()
             }
         )
         
-        # PHASE 2: Submit videos to Replicate
         for i, task in enumerate(video_tasks):
             if task.get('status') == 'error':
                 continue
@@ -491,31 +524,33 @@ def generate_showcase_videos_async(job_id: str):
                 print(f"[{job_id}] Error submitting to Replicate: {e}")
                 task['status'] = 'error'
                 task['error'] = str(e)
-            
-            # Update progress
-            progress = Decimal(str(((i + 1) / total_videos) * 30))  # 0-30% for submissions
-            jobs_table.update_item(
-                Key={'id': job_id},
-                UpdateExpression='SET video_tasks = :tasks, progress = :prog, updated_at = :updated',
-                ExpressionAttributeValues={
-                    ':tasks': video_tasks,
-                    ':prog': progress,
-                    ':updated': datetime.now().isoformat()
-                }
-            )
         
-        # PHASE 3: Poll for completion (this can take several minutes per video)
+        # Update progress after all submissions (20-30%)
+        jobs_table.update_item(
+            Key={'id': job_id},
+            UpdateExpression='SET video_tasks = :tasks, progress = :prog, updated_at = :updated',
+            ExpressionAttributeValues={
+                ':tasks': video_tasks,
+                ':prog': Decimal('30'),
+                ':updated': datetime.now().isoformat()
+            }
+        )
+        
+        # PHASE 3: Poll ALL predictions in parallel (check all at once)
         import time
-        max_wait_seconds = 600  # 10 minutes max per video
-        poll_interval = 15  # Check every 15 seconds
+        max_wait_seconds = 600  # 10 minutes max total
+        poll_interval = 10  # Check every 10 seconds
         
         pending_tasks = [t for t in video_tasks if t.get('replicate_id') and t.get('status') == 'processing']
         
+        print(f"[{job_id}] Polling {len(pending_tasks)} predictions in parallel...")
+        
         start_time = time.time()
-        while pending_tasks and (time.time() - start_time) < max_wait_seconds * len(pending_tasks):
+        while pending_tasks and (time.time() - start_time) < max_wait_seconds:
             time.sleep(poll_interval)
             
-            for task in pending_tasks[:]:  # Copy list to allow removal during iteration
+            # Check ALL pending tasks at once
+            for task in pending_tasks[:]:
                 try:
                     prediction = check_replicate_prediction(task['replicate_id'])
                     
@@ -532,7 +567,7 @@ def generate_showcase_videos_async(job_id: str):
                         print(f"[{job_id}] Video failed: {task['replicate_id']} - {task['error']}")
                         
                 except Exception as e:
-                    print(f"[{job_id}] Error polling: {e}")
+                    print(f"[{job_id}] Error polling {task['replicate_id']}: {e}")
             
             # Update progress (30-90%)
             completed = len([t for t in video_tasks if t.get('status') in ['completed', 'error']])
@@ -635,6 +670,8 @@ def get_showcase_video_status(event):
     """
     Get showcase video generation status.
     GET /api/admin/ambassadors/showcase-videos/status?job_id=XXX
+    
+    Returns detailed video_tasks for frontend progress display.
     """
     if not verify_admin(event):
         return response(401, {'error': 'Unauthorized'})
@@ -656,14 +693,18 @@ def get_showcase_video_status(event):
         # Clean up response
         job_data = decimal_to_python(job)
         
+        # Get video_tasks for detailed progress
+        video_tasks = job_data.get('video_tasks', [])
+        
         # Debug logging
-        print(f"[STATUS] Job {job_id}: status={job_data.get('status')}, progress={job_data.get('progress')}, videos={len(job_data.get('generated_videos', []))}")
+        print(f"[STATUS] Job {job_id}: status={job_data.get('status')}, progress={job_data.get('progress')}, tasks={len(video_tasks)}, videos={len(job_data.get('generated_videos', []))}")
         
         return response(200, {
             'job_id': job_id,
             'status': job_data.get('status'),
             'progress': job_data.get('progress', 0),
             'total_videos': job_data.get('total_videos', 0),
+            'video_tasks': video_tasks,  # Detailed task status for each video
             'generated_videos': job_data.get('generated_videos', []),
             'error': job_data.get('error'),
             'updated_at': job_data.get('updated_at')
