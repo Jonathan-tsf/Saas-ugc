@@ -343,3 +343,135 @@ def get_public_ambassadors(event):
     except Exception as e:
         print(f"Error getting public ambassadors: {e}")
         return response(500, {'error': 'Failed to get ambassadors'})
+
+
+def get_hero_videos(event):
+    """Get random showcase videos for hero section - GET /api/hero-videos
+    
+    Returns a diversified selection of showcase videos:
+    - Only from ambassadors who are NOT hasBeenChosen (not attributed)
+    - Diversified by gender (alternate male/female)
+    - Diversified semantically by scene type (uses prompt analysis)
+    - Returns random selection each time
+    
+    Query params:
+    - count: number of videos to return (default: 6, max: 12)
+    """
+    import random
+    import re
+    
+    params = event.get('queryStringParameters', {}) or {}
+    requested_count = min(int(params.get('count', 6)), 12)
+    
+    try:
+        # Get all ambassadors
+        scan_response = ambassadors_table.scan()
+        all_ambassadors = [decimal_to_python(item) for item in scan_response.get('Items', [])]
+        
+        # Collect all videos from non-attributed ambassadors
+        male_videos = []
+        female_videos = []
+        
+        for amb in all_ambassadors:
+            # Skip attributed ambassadors
+            if amb.get('hasBeenChosen', False):
+                continue
+            
+            # Get showcase videos
+            showcase_videos = amb.get('showcase_videos', [])
+            gender = amb.get('gender', 'other')
+            
+            for video in showcase_videos:
+                video_data = {
+                    'url': video.get('url'),
+                    'prompt': video.get('prompt', ''),
+                    'ambassador_id': amb.get('id'),
+                    'ambassador_name': amb.get('name'),
+                    'gender': gender,
+                    'scene_category': categorize_scene(video.get('prompt', ''))
+                }
+                
+                if gender == 'male':
+                    male_videos.append(video_data)
+                else:
+                    female_videos.append(video_data)
+        
+        # Shuffle both lists
+        random.shuffle(male_videos)
+        random.shuffle(female_videos)
+        
+        # Diversified selection algorithm
+        selected_videos = []
+        used_categories = set()
+        male_idx = 0
+        female_idx = 0
+        use_male = random.choice([True, False])  # Random starting gender
+        
+        while len(selected_videos) < requested_count:
+            # Alternate between genders
+            if use_male and male_idx < len(male_videos):
+                video = male_videos[male_idx]
+                male_idx += 1
+            elif not use_male and female_idx < len(female_videos):
+                video = female_videos[female_idx]
+                female_idx += 1
+            elif male_idx < len(male_videos):
+                video = male_videos[male_idx]
+                male_idx += 1
+            elif female_idx < len(female_videos):
+                video = female_videos[female_idx]
+                female_idx += 1
+            else:
+                break  # No more videos available
+            
+            # Check semantic diversity - prefer different scene categories
+            scene_cat = video.get('scene_category', 'other')
+            
+            # Accept if category not used recently (last 3) or if we need videos
+            recent_categories = [v['scene_category'] for v in selected_videos[-3:]]
+            if scene_cat not in recent_categories or len(selected_videos) >= requested_count - 2:
+                selected_videos.append(video)
+                used_categories.add(scene_cat)
+            
+            use_male = not use_male  # Alternate gender
+        
+        # Final shuffle to randomize the order
+        random.shuffle(selected_videos)
+        
+        return response(200, {
+            'videos': selected_videos,
+            'count': len(selected_videos),
+            'total_male': len(male_videos),
+            'total_female': len(female_videos)
+        })
+        
+    except Exception as e:
+        print(f"Error getting hero videos: {e}")
+        return response(500, {'error': 'Failed to get hero videos'})
+
+
+def categorize_scene(prompt: str) -> str:
+    """Categorize a video scene based on its prompt using semantic analysis."""
+    if not prompt:
+        return 'other'
+    
+    prompt_lower = prompt.lower()
+    
+    # Scene categories based on keywords
+    categories = {
+        'gym': ['gym', 'workout', 'exercise', 'fitness', 'weight', 'dumbbell', 'treadmill', 'plank', 'push-up', 'stretching', 'musculation'],
+        'kitchen': ['kitchen', 'cooking', 'smoothie', 'food', 'meal', 'chopping', 'preparing', 'nutrition', 'healthy eating'],
+        'office': ['laptop', 'computer', 'typing', 'desk', 'office', 'keyboard', 'work', 'bureau'],
+        'phone': ['phone', 'scrolling', 'mobile', 'texting', 'smartphone'],
+        'relaxation': ['couch', 'sofa', 'relaxing', 'reading', 'book', 'resting', 'sitting'],
+        'walking': ['walking', 'steps', 'standing', 'posing'],
+        'mirror': ['mirror', 'reflection', 'checking']
+    }
+    
+    for category, keywords in categories.items():
+        for keyword in keywords:
+            if keyword in prompt_lower:
+                return category
+    
+    return 'other'
+

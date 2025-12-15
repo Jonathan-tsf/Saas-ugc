@@ -23,7 +23,8 @@ from handlers.ambassadors import (
     update_ambassador,
     delete_ambassador,
     get_upload_url,
-    get_public_ambassadors
+    get_public_ambassadors,
+    get_hero_videos
 )
 
 from handlers.transform_async import (

@@ -25,6 +25,7 @@ from handlers import (
     delete_ambassador,
     get_upload_url,
     get_public_ambassadors,
+    get_hero_videos,
     # Transform
     start_transformation,
     continue_transformation,
@@ -190,6 +191,7 @@ def lambda_handler(event, context):
         ('POST', '/api/book-demo'): create_booking,
         ('POST', '/api/contact'): send_contact_email,
         ('GET', '/api/ambassadors'): get_public_ambassadors,
+        ('GET', '/api/hero-videos'): get_hero_videos,
         
         # User Authentication (public)
         ('POST', '/api/auth/signup'): sign_up,
