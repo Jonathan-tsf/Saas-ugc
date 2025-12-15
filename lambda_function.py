@@ -265,7 +265,23 @@ def lambda_handler(event, context):
     if http_method == 'DELETE' and path.startswith('/api/admin/bookings/'):
         return delete_booking(event)
     
-    if http_method == 'GET' and path.startswith('/api/admin/ambassadors/') and path != '/api/admin/ambassadors/upload-url':
+    # Ambassador showcase videos parameterized routes - MUST come before get_ambassador
+    # /api/admin/ambassadors/{id}/showcase-videos
+    if '/showcase-videos' in path and path.startswith('/api/admin/ambassadors/'):
+        # Extract ambassador_id from path
+        parts = path.split('/')
+        if len(parts) >= 6 and parts[5] == 'showcase-videos':
+            # Path is /api/admin/ambassadors/{id}/showcase-videos
+            ambassador_id = parts[4]
+            event['pathParameters'] = event.get('pathParameters', {}) or {}
+            event['pathParameters']['id'] = ambassador_id
+            
+            if http_method == 'GET':
+                return get_ambassador_showcase_videos(event)
+            elif http_method == 'DELETE':
+                return delete_showcase_video(event)
+    
+    if http_method == 'GET' and path.startswith('/api/admin/ambassadors/') and path != '/api/admin/ambassadors/upload-url' and '/showcase-videos' not in path:
         return get_ambassador(event)
     
     if http_method == 'DELETE' and path.startswith('/api/admin/ambassadors/'):
@@ -279,21 +295,5 @@ def lambda_handler(event, context):
             return update_outfit(event)
         elif http_method == 'DELETE':
             return delete_outfit(event)
-    
-    # Ambassador showcase videos parameterized routes
-    # /api/admin/ambassadors/{id}/showcase-videos
-    if '/showcase-videos' in path and path.startswith('/api/admin/ambassadors/'):
-        # Extract ambassador_id from path
-        parts = path.split('/')
-        if len(parts) >= 5 and parts[4] != 'showcase-videos':
-            # Path is /api/admin/ambassadors/{id}/showcase-videos
-            ambassador_id = parts[4]
-            event['pathParameters'] = event.get('pathParameters', {}) or {}
-            event['pathParameters']['id'] = ambassador_id
-            
-            if http_method == 'GET':
-                return get_ambassador_showcase_videos(event)
-            elif http_method == 'DELETE':
-                return delete_showcase_video(event)
     
     return response(404, {'error': f'Not found: {http_method} {path}'})
