@@ -776,3 +776,156 @@ def delete_showcase_video(event):
     except Exception as e:
         print(f"Error deleting video: {e}")
         return response(500, {'error': 'Failed to delete video'})
+
+
+def trim_showcase_video(event):
+    """
+    Trim a showcase video to a specific time range.
+    POST /api/admin/ambassadors/showcase-videos/trim
+    Body: { ambassador_id, video_index, start_time, end_time }
+    
+    Note: This is a placeholder - actual video trimming requires ffmpeg
+    which isn't available in Lambda by default. For now, we store the
+    trim metadata with the video.
+    """
+    if not verify_admin(event):
+        return response(401, {'error': 'Unauthorized'})
+    
+    try:
+        body = json.loads(event.get('body', '{}'))
+    except:
+        return response(400, {'error': 'Invalid JSON body'})
+    
+    ambassador_id = body.get('ambassador_id')
+    video_index = body.get('video_index')
+    start_time = body.get('start_time', 0)
+    end_time = body.get('end_time')
+    
+    if not ambassador_id or video_index is None or end_time is None:
+        return response(400, {'error': 'ambassador_id, video_index, start_time, and end_time are required'})
+    
+    try:
+        video_index = int(video_index)
+        start_time = float(start_time)
+        end_time = float(end_time)
+        
+        if start_time < 0 or end_time <= start_time:
+            return response(400, {'error': 'Invalid time range'})
+        
+        result = ambassadors_table.get_item(Key={'id': ambassador_id})
+        ambassador = result.get('Item')
+        
+        if not ambassador:
+            return response(404, {'error': 'Ambassador not found'})
+        
+        videos = ambassador.get('showcase_videos', [])
+        
+        if video_index < 0 or video_index >= len(videos):
+            return response(400, {'error': 'Invalid video_index'})
+        
+        # Update video with trim metadata
+        # Note: Actual trimming would require ffmpeg in Lambda Layer
+        videos[video_index]['trim_start'] = start_time
+        videos[video_index]['trim_end'] = end_time
+        videos[video_index]['trimmed_at'] = datetime.now().isoformat()
+        
+        # Update ambassador
+        ambassadors_table.update_item(
+            Key={'id': ambassador_id},
+            UpdateExpression='SET showcase_videos = :videos, updated_at = :updated',
+            ExpressionAttributeValues={
+                ':videos': videos,
+                ':updated': datetime.now().isoformat()
+            }
+        )
+        
+        return response(200, {
+            'success': True,
+            'video': decimal_to_python(videos[video_index]),
+            'message': f'Video trim saved: {start_time:.2f}s - {end_time:.2f}s'
+        })
+        
+    except Exception as e:
+        print(f"Error trimming video: {e}")
+        return response(500, {'error': 'Failed to trim video'})
+
+
+def select_best_showcase_video(event):
+    """
+    Select the best video from a pair and delete the other.
+    POST /api/admin/ambassadors/showcase-videos/select
+    Body: { ambassador_id, photo_index, selected_video_num }
+    """
+    if not verify_admin(event):
+        return response(401, {'error': 'Unauthorized'})
+    
+    try:
+        body = json.loads(event.get('body', '{}'))
+    except:
+        return response(400, {'error': 'Invalid JSON body'})
+    
+    ambassador_id = body.get('ambassador_id')
+    photo_index = body.get('photo_index')
+    selected_video_num = body.get('selected_video_num')
+    
+    if ambassador_id is None or photo_index is None or selected_video_num is None:
+        return response(400, {'error': 'ambassador_id, photo_index, and selected_video_num are required'})
+    
+    try:
+        photo_index = int(photo_index)
+        selected_video_num = int(selected_video_num)
+        
+        result = ambassadors_table.get_item(Key={'id': ambassador_id})
+        ambassador = result.get('Item')
+        
+        if not ambassador:
+            return response(404, {'error': 'Ambassador not found'})
+        
+        videos = ambassador.get('showcase_videos', [])
+        
+        # Find videos for this photo
+        videos_to_keep = []
+        videos_to_delete = []
+        
+        for video in videos:
+            if video.get('photo_index') == photo_index:
+                if video.get('video_num') == selected_video_num:
+                    # Mark as selected
+                    video['is_selected'] = True
+                    videos_to_keep.append(video)
+                else:
+                    # Mark for deletion
+                    videos_to_delete.append(video)
+            else:
+                videos_to_keep.append(video)
+        
+        # Delete videos from S3
+        for video in videos_to_delete:
+            if video.get('url') and S3_BUCKET in video['url']:
+                try:
+                    s3_key = video['url'].split(f"{S3_BUCKET}.s3.amazonaws.com/")[1]
+                    s3.delete_object(Bucket=S3_BUCKET, Key=s3_key)
+                    print(f"Deleted video from S3: {s3_key}")
+                except Exception as e:
+                    print(f"Error deleting from S3: {e}")
+        
+        # Update ambassador with filtered videos
+        ambassadors_table.update_item(
+            Key={'id': ambassador_id},
+            UpdateExpression='SET showcase_videos = :videos, updated_at = :updated',
+            ExpressionAttributeValues={
+                ':videos': videos_to_keep,
+                ':updated': datetime.now().isoformat()
+            }
+        )
+        
+        return response(200, {
+            'success': True,
+            'message': f'Selected video {selected_video_num} for photo {photo_index}',
+            'deleted_count': len(videos_to_delete),
+            'remaining_count': len(videos_to_keep)
+        })
+        
+    except Exception as e:
+        print(f"Error selecting best video: {e}")
+        return response(500, {'error': 'Failed to select best video'})

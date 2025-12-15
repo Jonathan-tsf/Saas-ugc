@@ -76,6 +76,8 @@ from handlers.showcase_videos import (
     get_ambassador_showcase_videos,
     delete_showcase_video,
     generate_showcase_videos_async,
+    trim_showcase_video,
+    select_best_showcase_video,
 )
 
 # Import authentication handlers
@@ -253,6 +255,8 @@ def lambda_handler(event, context):
         # Admin showcase video generation
         ('POST', '/api/admin/ambassadors/showcase-videos/generate'): start_showcase_video_generation,
         ('GET', '/api/admin/ambassadors/showcase-videos/status'): get_showcase_video_status,
+        ('POST', '/api/admin/ambassadors/showcase-videos/trim'): trim_showcase_video,
+        ('POST', '/api/admin/ambassadors/showcase-videos/select'): select_best_showcase_video,
     }
     
     # Find matching route
