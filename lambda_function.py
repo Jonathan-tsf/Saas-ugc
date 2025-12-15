@@ -69,6 +69,15 @@ from handlers.profile_generation import (
     generate_profile_photos_async,
 )
 
+# Import showcase video generation handlers
+from handlers.showcase_videos import (
+    start_showcase_video_generation,
+    get_showcase_video_status,
+    get_ambassador_showcase_videos,
+    delete_showcase_video,
+    generate_showcase_videos_async,
+)
+
 # Import authentication handlers
 from handlers.auth import (
     sign_up,
@@ -159,6 +168,12 @@ def lambda_handler(event, context):
         generate_showcase_scenes_async(job_id)
         return {'statusCode': 200, 'body': json.dumps({'success': True})}
     
+    # Handle async showcase video generation
+    if 'action' in event and event['action'] == 'generate_showcase_videos_async':
+        job_id = event['job_id']
+        generate_showcase_videos_async(job_id)
+        return {'statusCode': 200, 'body': json.dumps({'success': True})}
+    
     http_method = event.get('httpMethod', '')
     path = event.get('path', '')
     
@@ -234,6 +249,10 @@ def lambda_handler(event, context):
         ('POST', '/api/admin/ambassadors/profile-photos/generate'): start_profile_generation,
         ('GET', '/api/admin/ambassadors/profile-photos/status'): get_profile_generation_status,
         ('POST', '/api/admin/ambassadors/profile-photos/select'): select_profile_photo,
+        
+        # Admin showcase video generation
+        ('POST', '/api/admin/ambassadors/showcase-videos/generate'): start_showcase_video_generation,
+        ('GET', '/api/admin/ambassadors/showcase-videos/status'): get_showcase_video_status,
     }
     
     # Find matching route
@@ -260,5 +279,21 @@ def lambda_handler(event, context):
             return update_outfit(event)
         elif http_method == 'DELETE':
             return delete_outfit(event)
+    
+    # Ambassador showcase videos parameterized routes
+    # /api/admin/ambassadors/{id}/showcase-videos
+    if '/showcase-videos' in path and path.startswith('/api/admin/ambassadors/'):
+        # Extract ambassador_id from path
+        parts = path.split('/')
+        if len(parts) >= 5 and parts[4] != 'showcase-videos':
+            # Path is /api/admin/ambassadors/{id}/showcase-videos
+            ambassador_id = parts[4]
+            event['pathParameters'] = event.get('pathParameters', {}) or {}
+            event['pathParameters']['id'] = ambassador_id
+            
+            if http_method == 'GET':
+                return get_ambassador_showcase_videos(event)
+            elif http_method == 'DELETE':
+                return delete_showcase_video(event)
     
     return response(404, {'error': f'Not found: {http_method} {path}'})
