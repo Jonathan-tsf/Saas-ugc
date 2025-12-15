@@ -22,15 +22,66 @@ products_table = dynamodb.Table('products')
 
 # Valid categories for products
 VALID_CATEGORIES = [
-    'automobile',      # Cars, motorcycles
-    'nutrition',       # Protein, supplements, food
-    'tech',           # Phones, gadgets, electronics
-    'fashion',        # Watches, jewelry, accessories
-    'sports',         # Sports equipment, gear
-    'beauty',         # Skincare, cosmetics
-    'lifestyle',      # Home, travel, misc
-    'beverage',       # Drinks, energy drinks
-    'other'           # Everything else
+    # Véhicules
+    'automobile',      # Voitures
+    'moto',            # Motos, scooters
+    'velo',            # Vélos, VTT, vélos électriques
+    
+    # Alimentation & Boissons
+    'nutrition',       # Protéines, suppléments, compléments
+    'food',            # Nourriture, snacks, barres énergétiques
+    'beverage',        # Boissons, energy drinks, eau
+    'alcohol',         # Alcool, vin, bière, spiritueux
+    
+    # Tech & Électronique
+    'smartphone',      # Téléphones, mobiles
+    'computer',        # PC, laptops, tablettes
+    'audio',           # Casques, écouteurs, enceintes
+    'gaming',          # Consoles, manettes, accessoires gaming
+    'camera',          # Appareils photo, caméras, drones
+    'wearable',        # Montres connectées, bracelets fitness
+    
+    # Mode & Accessoires
+    'clothing',        # Vêtements, t-shirts, pantalons
+    'shoes',           # Chaussures, sneakers, baskets
+    'watch',           # Montres classiques, luxe
+    'jewelry',         # Bijoux, colliers, bracelets
+    'bags',            # Sacs, sacs à dos, valises
+    'eyewear',         # Lunettes de soleil, lunettes de vue
+    'accessories',     # Ceintures, portefeuilles, etc.
+    
+    # Sport & Fitness
+    'fitness',         # Équipement de musculation, haltères
+    'sports_equipment',# Équipement sportif général
+    'outdoor',         # Camping, randonnée, escalade
+    'water_sports',    # Surf, natation, plongée
+    'winter_sports',   # Ski, snowboard
+    'team_sports',     # Football, basketball, tennis
+    
+    # Beauté & Soins
+    'skincare',        # Soins de la peau, crèmes
+    'haircare',        # Soins capillaires, shampoings
+    'makeup',          # Maquillage
+    'fragrance',       # Parfums, eaux de toilette
+    'grooming',        # Rasage, barbe, soins homme
+    
+    # Maison & Lifestyle
+    'home',            # Décoration, meubles
+    'kitchen',         # Cuisine, électroménager
+    'garden',          # Jardin, extérieur
+    'pet',             # Animaux, accessoires pour animaux
+    
+    # Santé & Bien-être
+    'health',          # Santé, médical
+    'wellness',        # Bien-être, relaxation, yoga
+    'baby',            # Bébé, puériculture
+    
+    # Autres
+    'luxury',          # Produits de luxe
+    'collectible',     # Objets de collection
+    'tools',           # Outils, bricolage
+    'office',          # Bureau, fournitures
+    'other'            # Autre
 ]
 
 
@@ -72,15 +123,24 @@ def analyze_product_image(image_base64: str) -> dict:
                 {
                     "type": "text",
                     "text": """Analyze this product image and provide:
-1. A suggested product name (short, marketing-friendly)
-2. A brief description in French (2-3 sentences describing the product)
-3. The most appropriate category from this list: automobile, nutrition, tech, fashion, sports, beauty, lifestyle, beverage, other
+1. A suggested product name (short, marketing-friendly, in the original language if text is visible)
+2. A brief description in French (2-3 sentences describing the product, its features, and target audience)
+3. The most appropriate category from this list:
+   - Vehicles: automobile, moto, velo
+   - Food & Drinks: nutrition, food, beverage, alcohol
+   - Tech: smartphone, computer, audio, gaming, camera, wearable
+   - Fashion: clothing, shoes, watch, jewelry, bags, eyewear, accessories
+   - Sports: fitness, sports_equipment, outdoor, water_sports, winter_sports, team_sports
+   - Beauty: skincare, haircare, makeup, fragrance, grooming
+   - Home: home, kitchen, garden, pet
+   - Health: health, wellness, baby
+   - Other: luxury, collectible, tools, office, other
 4. The brand name if visible (or "Unknown" if not visible)
 
 Respond in JSON format only:
 {
     "name": "Product Name",
-    "description": "Description en français...",
+    "description": "Description en français détaillée...",
     "category": "category_from_list",
     "brand": "Brand Name or Unknown"
 }"""
