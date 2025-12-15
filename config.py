@@ -28,6 +28,11 @@ s3 = boto3.client('s3', region_name='us-east-1')
 lambda_client = boto3.client('lambda', region_name='us-east-1')
 bedrock_runtime = boto3.client('bedrock-runtime', region_name='us-east-1')
 
+
+def get_bedrock_client():
+    """Get Bedrock runtime client for AI analysis"""
+    return bedrock_runtime
+
 # CORS Headers
 CORS_HEADERS = {
     'Access-Control-Allow-Origin': '*',
