@@ -134,10 +134,10 @@ def create_outfit(event):
         if outfit_type not in VALID_TYPES:
             return response(400, {'error': f'Invalid type. Must be one of: {", ".join(VALID_TYPES)}'})
         
-        # Upload image to S3 with cache headers
-        image_key = f"outfits/{outfit_id}.png"
+        # Upload image to S3 with cache headers (JPEG from frontend compression)
+        image_key = f"outfits/{outfit_id}.jpg"
         image_data = base64.b64decode(image_base64)
-        image_url = upload_to_s3(image_key, image_data, 'image/png', cache_days=365)
+        image_url = upload_to_s3(image_key, image_data, 'image/jpeg', cache_days=365)
         
         # Create outfit record
         outfit = {

@@ -116,7 +116,7 @@ def analyze_product_image(image_base64: str) -> dict:
                     "type": "image",
                     "source": {
                         "type": "base64",
-                        "media_type": "image/png",
+                        "media_type": "image/jpeg",  # Frontend compresses to JPEG
                         "data": image_base64
                     }
                 },
@@ -292,10 +292,10 @@ def create_product(event):
                 'error': f'Invalid category. Must be one of: {", ".join(VALID_CATEGORIES)}'
             })
         
-        # Upload image to S3
-        image_key = f"products/{product_id}.png"
+        # Upload image to S3 (JPEG from frontend compression)
+        image_key = f"products/{product_id}.jpg"
         image_data = base64.b64decode(image_base64)
-        image_url = upload_to_s3(image_key, image_data, 'image/png', cache_days=365)
+        image_url = upload_to_s3(image_key, image_data, 'image/jpeg', cache_days=365)
         
         # Create product record
         now = datetime.now().isoformat()

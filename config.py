@@ -163,7 +163,7 @@ Exemples de bonnes descriptions:
                             "type": "image",
                             "source": {
                                 "type": "base64",
-                                "media_type": "image/png",
+                                "media_type": "image/jpeg",  # Frontend compresses to JPEG
                                 "data": image_base64
                             }
                         },
@@ -276,7 +276,7 @@ Exemples de bonnes variations pour un "T-shirt noir Nike":
                             "type": "image",
                             "source": {
                                 "type": "base64",
-                                "media_type": "image/png",
+                                "media_type": "image/jpeg",  # Frontend compresses to JPEG
                                 "data": image_base64
                             }
                         },
