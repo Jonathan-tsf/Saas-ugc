@@ -806,8 +806,8 @@ def trim_showcase_video(event):
     
     try:
         video_index = int(video_index)
-        start_time = float(start_time)
-        end_time = float(end_time)
+        start_time = Decimal(str(start_time))
+        end_time = Decimal(str(end_time))
         
         if start_time < 0 or end_time <= start_time:
             return response(400, {'error': 'Invalid time range'})
