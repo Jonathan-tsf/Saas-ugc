@@ -202,8 +202,25 @@ Exemples de bonnes descriptions:
         
         print(f"Claude text response: {text_content}")
         
+        # Strip markdown code blocks if present (Claude often wraps JSON in ```json ... ```)
+        json_text = text_content.strip()
+        if json_text.startswith('```'):
+            # Remove opening ```json or ``` line
+            lines = json_text.split('\n')
+            # Find start of actual JSON (skip ```json line)
+            start_idx = 1 if lines[0].startswith('```') else 0
+            # Find end (remove closing ```)
+            end_idx = len(lines)
+            for i in range(len(lines) - 1, -1, -1):
+                if lines[i].strip() == '```':
+                    end_idx = i
+                    break
+            json_text = '\n'.join(lines[start_idx:end_idx])
+        
+        print(f"Extracted JSON text: {json_text}")
+        
         # Parse the JSON response from Claude
-        result = json.loads(text_content)
+        result = json.loads(json_text)
         
         # Validate the type is in the valid list
         if result.get('type') not in valid_types:
@@ -299,7 +316,19 @@ Exemples de bonnes variations pour un "T-shirt noir Nike":
         response_body = json.loads(response['body'].read())
         content = response_body.get('content', [{}])[0].get('text', '{}')
         
-        result = json.loads(content)
+        # Strip markdown code blocks if present
+        json_text = content.strip()
+        if json_text.startswith('```'):
+            lines = json_text.split('\n')
+            start_idx = 1 if lines[0].startswith('```') else 0
+            end_idx = len(lines)
+            for i in range(len(lines) - 1, -1, -1):
+                if lines[i].strip() == '```':
+                    end_idx = i
+                    break
+            json_text = '\n'.join(lines[start_idx:end_idx])
+        
+        result = json.loads(json_text)
         variations = result.get('variations', [])
         
         # Ensure we have exactly 10 variations
