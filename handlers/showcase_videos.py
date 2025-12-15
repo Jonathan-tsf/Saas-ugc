@@ -86,27 +86,25 @@ def generate_video_prompt_with_bedrock(image_url: str, scene_context: str = "") 
     """
     model_id = "global.anthropic.claude-sonnet-4-5-20250929-v1:0"
     
-    system_prompt = """You are an expert at creating prompts for AI video generation from images.
-Your goal is to create prompts that produce ultra-realistic human videos with minimal artifacts.
+    system_prompt = """You analyze images and describe what action the person is doing.
+Your output will be used for AI video generation to continue that action.
 
-CRITICAL RULES - MUST FOLLOW:
-1. CAMERA MUST BE COMPLETELY STATIC - NO camera movement AT ALL (no pan, no zoom, no push-in, no tracking)
-2. NO SMILING WITH TEETH - only subtle closed-mouth expressions allowed
-3. Movement speed must be REALISTIC - not slow motion, natural human speed
-4. Focus 70% of the prompt on MOTION DIRECTIVES (what moves, how, speed)
-5. Describe ONE simple action only - complex actions cause glitches
-6. Keep the subject's identity, clothing, and proportions IDENTICAL to source
-7. Emphasize micro-movements: breathing, blinking, subtle head tilts
-8. Describe EXACTLY what is in the image - clothes, pose, objects, setting
+RULES:
+1. Identify the MAIN ACTION the person is doing (typing, scrolling, exercising, cooking, etc.)
+2. Output ONLY a simple continuation prompt
+3. Never add breathing, expressions, or other secondary actions
+4. Keep it to ONE simple sentence
 
-PROMPT STRUCTURE:
-Static camera shot. [Describe exactly what you see: person, clothing, pose, objects held, setting]
-Action (ONE): [single simple realistic-speed action appropriate to what they're holding/doing]
-Micro-motion: subtle breathing, natural blink, tiny head movement, hair/clothes react naturally
-Expression: neutral or subtle closed-mouth confidence, NO teeth showing
-Look: cinematic, realistic skin texture, natural motion blur, shallow depth of field
+Examples of good outputs:
+- "The person continues typing on the laptop keyboard"
+- "The person continues scrolling on their phone"
+- "The person continues chopping vegetables"
+- "The person continues doing push-ups"
+- "The person continues running on the treadmill"
+- "The person continues stirring the pan"
+- "The person continues lifting the dumbbell"
 
-Generate for TikTok/Instagram style B-roll content - professional but authentic."""
+If no clear action, just say: "The person makes a subtle movement" """
 
     try:
         # Download and encode image
@@ -120,28 +118,19 @@ Generate for TikTok/Instagram style B-roll content - professional but authentic.
         elif ".webp" in image_url.lower():
             media_type = "image/webp"
         
-        user_prompt = f"""Look at this image carefully and create a video prompt.
+        user_prompt = """Look at this image. What action is the person doing?
 
-{f"Additional context: {scene_context}" if scene_context else ""}
+Respond with ONLY valid JSON:
+{"action": "The person continues [doing what they're doing]"}
 
-IMPORTANT:
-1. Describe EXACTLY what you see in the image (person, clothing, objects, pose, setting)
-2. If they are holding something, the action should relate to that object
-3. Camera MUST stay completely still - NO movement
-4. NO smiling with teeth - only closed-mouth expressions
-5. Movement should be realistic speed, not slow motion
-
-Create a 10-second video prompt based on what you actually see.
-
-Respond ONLY with valid JSON in this exact format:
-{{
-    "prompt": "Static camera shot. [your detailed video prompt describing what you see and one simple action]",
-    "negative_prompt": "camera movement, zooming, panning, teeth showing, open mouth smile, morphing, face drift, changing facial features, extra limbs, bad hands, slow motion"
-}}"""
+Examples:
+{"action": "The person continues typing on the laptop"}
+{"action": "The person continues scrolling on their phone"}
+{"action": "The person continues lifting weights"}"""
 
         request_body = {
             "anthropic_version": "bedrock-2023-05-31",
-            "max_tokens": 600,
+            "max_tokens": 100,
             "system": system_prompt,
             "messages": [
                 {
@@ -164,34 +153,35 @@ Respond ONLY with valid JSON in this exact format:
             ]
         }
         
-        response = bedrock_runtime.invoke_model(
+        response_data = bedrock_runtime.invoke_model(
             modelId=model_id,
             body=json.dumps(request_body),
             contentType="application/json",
             accept="application/json"
         )
         
-        response_body = json.loads(response['body'].read())
+        response_body = json.loads(response_data['body'].read())
         content = response_body.get('content', [{}])[0].get('text', '{}')
         
         # Parse the JSON response
         result = json.loads(content)
+        action = result.get('action', 'The person makes a subtle movement')
         
-        # Ensure we have required fields
-        if 'prompt' not in result:
-            raise ValueError("No prompt in response")
+        # Build the final simple prompt
+        final_prompt = f"{action}. Static camera, no movement."
         
-        if 'negative_prompt' not in result:
-            result['negative_prompt'] = DEFAULT_NEGATIVE_PROMPT
+        print(f"Bedrock video prompt: {final_prompt}")
         
-        print(f"Bedrock video prompt generated: {result['prompt'][:100]}...")
-        return result
+        return {
+            'prompt': final_prompt,
+            'negative_prompt': DEFAULT_NEGATIVE_PROMPT
+        }
         
     except Exception as e:
         print(f"Error generating video prompt with Bedrock: {e}")
         # Return a default prompt on error
         return {
-            'prompt': f"Static camera shot. The person in the reference image stands confidently, takes a breath, subtle closed-mouth expression. Natural breathing, small head movement. Camera completely still. Soft natural lighting, cinematic realism.",
+            'prompt': "The person makes a subtle movement. Static camera, no movement.",
             'negative_prompt': DEFAULT_NEGATIVE_PROMPT
         }
 
