@@ -58,6 +58,16 @@ from handlers.showcase_generation import (
     select_showcase_photo,
 )
 
+from handlers.products import (
+    get_products,
+    get_product,
+    create_product,
+    update_product,
+    delete_product,
+    get_product_upload_url,
+    increment_product_count,
+)
+
 __all__ = [
     # Bookings
     'get_availability',
@@ -101,4 +111,12 @@ __all__ = [
     'get_showcase_generation_status',
     'generate_showcase_photos_async',
     'select_showcase_photo',
+    # Products
+    'get_products',
+    'get_product',
+    'create_product',
+    'update_product',
+    'delete_product',
+    'get_product_upload_url',
+    'increment_product_count',
 ]

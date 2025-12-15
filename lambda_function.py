@@ -43,6 +43,16 @@ from handlers.outfits import (
     get_upload_url as get_outfit_upload_url,
 )
 
+# Import product handlers
+from handlers.products import (
+    get_products,
+    get_product,
+    create_product,
+    update_product,
+    delete_product,
+    get_product_upload_url,
+)
+
 # Import outfit generation handlers
 from handlers.outfit_generation import (
     start_outfit_generation,
@@ -237,6 +247,11 @@ def lambda_handler(event, context):
         ('POST', '/api/admin/outfits'): create_outfit,
         ('GET', '/api/admin/outfits/upload-url'): get_outfit_upload_url,
         
+        # Admin products CRUD
+        ('GET', '/api/admin/products'): get_products,
+        ('POST', '/api/admin/products'): create_product,
+        ('GET', '/api/admin/products/upload-url'): get_product_upload_url,
+        
         # Admin outfit generation
         ('POST', '/api/admin/ambassadors/outfits/generate'): start_outfit_generation,
         ('GET', '/api/admin/ambassadors/outfits/status'): get_outfit_generation_status,
@@ -301,5 +316,14 @@ def lambda_handler(event, context):
             return update_outfit(event)
         elif http_method == 'DELETE':
             return delete_outfit(event)
+    
+    # Product parameterized routes
+    if path.startswith('/api/admin/products/') and path != '/api/admin/products/upload-url':
+        if http_method == 'GET':
+            return get_product(event)
+        elif http_method == 'PUT':
+            return update_product(event)
+        elif http_method == 'DELETE':
+            return delete_product(event)
     
     return response(404, {'error': f'Not found: {http_method} {path}'})
