@@ -117,10 +117,14 @@ def create_outfit(event):
         
         # Use AI to analyze the image if description or type not provided
         if not manual_description or not manual_type:
-            print(f"Analyzing outfit image with Bedrock Haiku...")
+            print(f"Analyzing outfit image with Bedrock Claude Sonnet...")
             ai_result = analyze_outfit_image(image_base64, VALID_TYPES)
-            description = manual_description or ai_result.get('description', 'Tenue sport')
-            outfit_type = manual_type or ai_result.get('type', 'sport')
+            description = manual_description or ai_result.get('description')
+            outfit_type = manual_type or ai_result.get('type')
+            
+            if not description or not outfit_type:
+                raise Exception("AI analysis returned empty description or type")
+            
             print(f"AI analysis: description='{description}', type='{outfit_type}'")
         else:
             description = manual_description

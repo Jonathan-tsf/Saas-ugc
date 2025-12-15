@@ -203,12 +203,12 @@ Exemples de bonnes descriptions:
         return result
         
     except Exception as e:
-        print(f"Error analyzing outfit with Bedrock: {e}")
-        # Return default values on error
-        return {
-            'description': 'Tenue sport',
-            'type': valid_types[0] if valid_types else 'sport'
-        }
+        import traceback
+        error_msg = f"Error analyzing outfit with Bedrock: {e}"
+        print(error_msg)
+        print(f"Full traceback: {traceback.format_exc()}")
+        # Raise the error instead of using fallback - we want to know when AI fails
+        raise Exception(f"AI analysis failed: {str(e)}. Please check Bedrock configuration and permissions.")
 
 
 def generate_outfit_variations_descriptions(image_base64: str, original_description: str) -> list:
