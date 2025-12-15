@@ -234,15 +234,27 @@ def start_profile_generation(event):
         return response(500, {'error': 'Failed to fetch ambassador'})
     
     # Get source image (from showcase photos or profile photo)
-    showcase_photos = ambassador.get('photo_list_base_array', [])
+    # showcase_photos contains objects with 'selected_image' field
+    showcase_photos_data = ambassador.get('showcase_photos', [])
+    photo_list_base = ambassador.get('photo_list_base_array', [])
     current_profile = ambassador.get('photo_profile', '')
     
-    # Build list of candidate images: profile photo first, then showcase photos
+    # Build list of candidate images: profile photo first, then showcase selected images
     candidate_images = []
     if current_profile:
         candidate_images.append(current_profile)
-    if showcase_photos:
-        for photo in showcase_photos:
+    
+    # Add selected images from showcase_photos (these are the AI-generated vitrine photos)
+    if showcase_photos_data:
+        for photo_obj in showcase_photos_data:
+            if isinstance(photo_obj, dict):
+                selected_img = photo_obj.get('selected_image')
+                if selected_img and selected_img not in candidate_images:
+                    candidate_images.append(selected_img)
+    
+    # Also add base photos if available
+    if photo_list_base:
+        for photo in photo_list_base:
             if photo and photo not in candidate_images:
                 candidate_images.append(photo)
     
