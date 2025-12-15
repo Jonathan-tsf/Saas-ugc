@@ -166,6 +166,34 @@ def smart_crop_to_square(image_bytes, face_bounds=None, padding_factor=0.5, crop
     return output.read()
 
 
+def generate_single_profile_crop(image_bytes, padding_factor=0.5, crop_style='standard'):
+    """
+    Generate a single profile crop from an image with specified zoom level.
+    
+    Args:
+        image_bytes: Raw image bytes
+        padding_factor: Zoom level (0.3 = close, 1.0 = wide)
+        crop_style: Style name for labeling
+    
+    Returns tuple: (cropped_bytes, face_detected boolean)
+    """
+    # Detect face
+    face_bounds = detect_face_bounds(image_bytes)
+    face_detected = face_bounds is not None
+    
+    if face_bounds:
+        print(f"Face detected at: {face_bounds}")
+    else:
+        print(f"No face detected for {crop_style}, using smart center crop")
+    
+    try:
+        cropped_bytes = smart_crop_to_square(image_bytes, face_bounds, padding_factor, crop_style=crop_style)
+        return cropped_bytes, face_detected
+    except Exception as e:
+        print(f"Error generating crop: {e}")
+        return None, face_detected
+
+
 def generate_profile_crops(image_bytes, num_variations=4):
     """
     Generate multiple crop variations from the same image.
@@ -239,12 +267,11 @@ def start_profile_generation(event):
     photo_list_base = ambassador.get('photo_list_base_array', [])
     current_profile = ambassador.get('photo_profile', '')
     
-    # Build list of candidate images: profile photo first, then showcase selected images
+    # Build list of candidate images: SHOWCASE photos FIRST (they have AI-generated faces)
+    # Then profile photo, then base photos
     candidate_images = []
-    if current_profile:
-        candidate_images.append(current_profile)
     
-    # Add selected images from showcase_photos (these are the AI-generated vitrine photos)
+    # PRIORITY 1: Showcase selected images (AI-generated vitrine photos with faces)
     if showcase_photos_data:
         for photo_obj in showcase_photos_data:
             if isinstance(photo_obj, dict):
@@ -252,7 +279,11 @@ def start_profile_generation(event):
                 if selected_img and selected_img not in candidate_images:
                     candidate_images.append(selected_img)
     
-    # Also add base photos if available
+    # PRIORITY 2: Current profile photo
+    if current_profile and current_profile not in candidate_images:
+        candidate_images.append(current_profile)
+    
+    # PRIORITY 3: Base photos as fallback
     if photo_list_base:
         for photo in photo_list_base:
             if photo and photo not in candidate_images:
@@ -332,11 +363,11 @@ def start_profile_generation(event):
 def generate_profile_photos_async(job_id):
     """
     Generate profile photo crops asynchronously - called by Lambda invoke
-    Uses smart crop with face detection (no AI generation)
-    Tries multiple candidate images until a face is detected
+    Uses 4 DIFFERENT showcase photos with varying zoom levels
+    Each photo gets a different zoom level for variety
     Updates DynamoDB progressively as each crop is generated
     """
-    print(f"[{job_id}] Starting async profile photo cropping...")
+    print(f"[{job_id}] Starting async profile photo cropping (multi-image mode)...")
     
     try:
         # Get job from DynamoDB
@@ -350,95 +381,70 @@ def generate_profile_photos_async(job_id):
         ambassador_id = job.get('ambassador_id')
         candidate_images = job.get('candidate_images', [])
         
-        # Try each candidate image until we find one with a face
-        source_data = None
-        face_detected = False
-        used_image_url = None
+        print(f"[{job_id}] Found {len(candidate_images)} candidate images")
         
-        # First, try the image already stored in S3
-        source_key = job.get('source_s3_key')
-        if source_key:
-            try:
-                source_obj = s3.get_object(Bucket=S3_BUCKET, Key=source_key)
-                source_data = source_obj['Body'].read()
-                used_image_url = candidate_images[0] if candidate_images else "stored"
-                
-                # Check if face is detected
-                face_bounds = detect_face_bounds(source_data)
-                if face_bounds:
-                    face_detected = True
-                    print(f"[{job_id}] ✓ Face detected in first image (profile photo)")
-            except Exception as e:
-                print(f"[{job_id}] Error reading stored image: {e}")
-        
-        # If no face in first image, try other candidate images
-        if not face_detected and len(candidate_images) > 1:
-            print(f"[{job_id}] No face in first image, trying {len(candidate_images) - 1} other candidate(s)...")
-            
-            for i, img_url in enumerate(candidate_images[1:], start=2):
-                try:
-                    print(f"[{job_id}] Trying candidate {i}/{len(candidate_images)}: {img_url[:50]}...")
-                    req = urllib.request.Request(img_url)
-                    with urllib.request.urlopen(req, timeout=30) as img_response:
-                        candidate_data = img_response.read()
-                    
-                    # Check for face
-                    face_bounds = detect_face_bounds(candidate_data)
-                    if face_bounds:
-                        face_detected = True
-                        source_data = candidate_data
-                        used_image_url = img_url
-                        print(f"[{job_id}] ✓ Face detected in candidate {i} (showcase photo)")
-                        break
-                    else:
-                        print(f"[{job_id}] ✗ No face in candidate {i}")
-                        
-                except Exception as e:
-                    print(f"[{job_id}] Error downloading candidate {i}: {e}")
-        
-        if not source_data:
-            print(f"[{job_id}] No valid source image found")
-            jobs_table.update_item(
-                Key={'id': job_id},
-                UpdateExpression='SET #status = :status, error = :error, updated_at = :updated',
-                ExpressionAttributeNames={'#status': 'status'},
-                ExpressionAttributeValues={
-                    ':status': 'error',
-                    ':error': 'No valid source image found',
-                    ':updated': datetime.now().isoformat()
-                }
-            )
-            return
-        
-        print(f"[{job_id}] Using image: {used_image_url[:50] if used_image_url else 'stored'}... (face_detected={face_detected})")
-        
-        # Generate crop variations (smart crop with face detection)
-        crops, _ = generate_profile_crops(source_data, num_variations=4)
+        # We want 4 photos from different source images
+        # Different zoom levels for variety
+        zoom_configs = [
+            {'padding': 0.3, 'style': 'close_up'},    # Zoom serré
+            {'padding': 0.5, 'style': 'standard'},    # Zoom standard
+            {'padding': 0.7, 'style': 'wide'},        # Zoom large
+            {'padding': 1.0, 'style': 'full'}         # Vue complète
+        ]
         
         generated_photos = []
+        images_used = []
         
-        for i, crop in enumerate(crops):
+        # Download and process each candidate image (up to 4)
+        for i in range(min(4, len(candidate_images))):
+            img_url = candidate_images[i]
+            zoom_config = zoom_configs[i]
+            
             try:
-                # Upload to S3 with cache headers
-                photo_key = f"ambassadors/{ambassador_id}/profile_options/profile_{i+1}_{uuid.uuid4().hex[:8]}.png"
-                photo_url = upload_to_s3(photo_key, crop['bytes'], 'image/png', cache_days=365)
+                print(f"[{job_id}] Processing image {i+1}/4: {img_url[:50]}...")
                 
-                photo_data = {
-                    'index': crop['index'],
-                    'url': photo_url,
-                    'style': crop['style'],
-                    'face_detected': face_detected
-                }
-                generated_photos.append(photo_data)
+                # Download image
+                req = urllib.request.Request(img_url)
+                with urllib.request.urlopen(req, timeout=30) as img_response:
+                    image_data = img_response.read()
                 
-                print(f"[{job_id}] ✓ Profile crop {i+1}/4 uploaded: {photo_url}")
+                # Generate single crop with specific zoom level
+                cropped_bytes, face_detected = generate_single_profile_crop(
+                    image_data, 
+                    padding_factor=zoom_config['padding'],
+                    crop_style=zoom_config['style']
+                )
                 
+                if cropped_bytes:
+                    # Upload to S3 with cache headers
+                    photo_key = f"ambassadors/{ambassador_id}/profile_options/profile_{i+1}_{uuid.uuid4().hex[:8]}.png"
+                    photo_url = upload_to_s3(photo_key, cropped_bytes, 'image/png', cache_days=365)
+                    
+                    photo_data = {
+                        'index': i,
+                        'url': photo_url,
+                        'style': zoom_config['style'],
+                        'face_detected': face_detected,
+                        'source_image': img_url[:100]  # Keep reference to source
+                    }
+                    generated_photos.append(photo_data)
+                    images_used.append(img_url)
+                    
+                    print(f"[{job_id}] ✓ Profile {i+1}/4 ({zoom_config['style']}) - face:{face_detected}")
+                else:
+                    print(f"[{job_id}] ✗ Failed to crop image {i+1}")
+                    generated_photos.append({
+                        'index': i,
+                        'error': 'Failed to crop image',
+                        'style': zoom_config['style']
+                    })
+                    
             except Exception as e:
-                print(f"[{job_id}] ✗ Error uploading crop {i+1}: {e}")
+                print(f"[{job_id}] ✗ Error processing image {i+1}: {e}")
                 generated_photos.append({
                     'index': i,
                     'error': str(e),
-                    'style': crop.get('style', 'unknown')
+                    'style': zoom_config['style']
                 })
             
             # Update progress in DynamoDB after each photo
@@ -452,6 +458,54 @@ def generate_profile_photos_async(job_id):
                     ':updated': datetime.now().isoformat()
                 }
             )
+        
+        # If we have less than 4 candidate images, fill remaining slots with different zooms of best image
+        if len(candidate_images) < 4 and len(images_used) > 0:
+            print(f"[{job_id}] Only {len(candidate_images)} images, filling remaining with different zooms...")
+            
+            # Use the first image (most likely to have a face) for remaining slots
+            best_image_url = images_used[0] if images_used else candidate_images[0]
+            
+            try:
+                req = urllib.request.Request(best_image_url)
+                with urllib.request.urlopen(req, timeout=30) as img_response:
+                    best_image_data = img_response.read()
+                
+                for i in range(len(candidate_images), 4):
+                    zoom_config = zoom_configs[i]
+                    
+                    cropped_bytes, face_detected = generate_single_profile_crop(
+                        best_image_data,
+                        padding_factor=zoom_config['padding'],
+                        crop_style=zoom_config['style']
+                    )
+                    
+                    if cropped_bytes:
+                        photo_key = f"ambassadors/{ambassador_id}/profile_options/profile_{i+1}_{uuid.uuid4().hex[:8]}.png"
+                        photo_url = upload_to_s3(photo_key, cropped_bytes, 'image/png', cache_days=365)
+                        
+                        generated_photos.append({
+                            'index': i,
+                            'url': photo_url,
+                            'style': zoom_config['style'],
+                            'face_detected': face_detected,
+                            'source_image': best_image_url[:100]
+                        })
+                        print(f"[{job_id}] ✓ Profile {i+1}/4 (fallback {zoom_config['style']}) - face:{face_detected}")
+                    
+                    # Update progress
+                    progress = Decimal(str(((i + 1) / 4) * 100))
+                    jobs_table.update_item(
+                        Key={'id': job_id},
+                        UpdateExpression='SET generated_photos = :photos, progress = :prog, updated_at = :updated',
+                        ExpressionAttributeValues={
+                            ':photos': generated_photos,
+                            ':prog': progress,
+                            ':updated': datetime.now().isoformat()
+                        }
+                    )
+            except Exception as e:
+                print(f"[{job_id}] Error in fallback generation: {e}")
         
         # Mark job as completed
         successful_photos = [p for p in generated_photos if 'url' in p]
@@ -482,6 +536,19 @@ def generate_profile_photos_async(job_id):
         )
         
         print(f"[{job_id}] Profile photo cropping completed: {len(successful_photos)}/4 successful")
+        
+    except Exception as e:
+        print(f"[{job_id}] Fatal error in async cropping: {e}")
+        jobs_table.update_item(
+            Key={'id': job_id},
+            UpdateExpression='SET #status = :status, error = :error, updated_at = :updated',
+            ExpressionAttributeNames={'#status': 'status'},
+            ExpressionAttributeValues={
+                ':status': 'error',
+                ':error': str(e),
+                ':updated': datetime.now().isoformat()
+            }
+        )
         
     except Exception as e:
         print(f"[{job_id}] Fatal error in async cropping: {e}")
