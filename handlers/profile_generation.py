@@ -114,11 +114,11 @@ def smart_crop_to_square(image_bytes, face_bounds=None, padding_factor=0.5, crop
         # This creates variety even without face detection
         min_dim = min(img_width, img_height)
         
-        # Different crop sizes for different styles
+        # Different crop sizes for different styles (when no face detected)
         crop_ratios = {
-            'close_up': 0.4,   # 40% of image - tight crop on upper portion
-            'standard': 0.55,  # 55% of image - medium crop
-            'wide': 0.75,      # 75% of image - wider view
+            'close_up': 0.25,   # 25% of image - très serré sur le haut
+            'standard': 0.45,  # 45% of image - tête et épaules
+            'wide': 0.70,      # 70% of image - buste
             'full': 1.0        # 100% - full square crop
         }
         crop_ratio = crop_ratios.get(crop_style, 0.55)
@@ -384,11 +384,12 @@ def generate_profile_photos_async(job_id):
         print(f"[{job_id}] Found {len(candidate_images)} candidate images")
         
         # 4 zoom levels to apply to each image
+        # Padding = multiplier for face size. Higher = more background visible
         zoom_configs = [
-            {'padding': 0.3, 'style': 'close_up'},    # Zoom serré
-            {'padding': 0.5, 'style': 'standard'},    # Zoom standard
-            {'padding': 0.7, 'style': 'wide'},        # Zoom large
-            {'padding': 1.0, 'style': 'full'}         # Vue complète
+            {'padding': 0.5, 'style': 'close_up'},    # Zoom serré - visage presque plein cadre
+            {'padding': 1.5, 'style': 'standard'},    # Zoom standard - tête et épaules
+            {'padding': 3.0, 'style': 'wide'},        # Zoom large - buste
+            {'padding': 6.0, 'style': 'full'}         # Vue complète - corps entier ou max
         ]
         
         generated_photos = []
