@@ -123,8 +123,8 @@ def analyze_outfit_image(image_base64: str, valid_types: list) -> dict:
     """
     import base64
     
-    # Claude Sonnet model ID
-    model_id = "global.anthropic.claude-sonnet-4-5-20250929-v1:0"
+    # Claude Sonnet 4.5 model ID - use 'us.' prefix (same as showcase_generation.py)
+    model_id = "us.anthropic.claude-sonnet-4-5-20250929-v1:0"
     
     types_list = ", ".join(valid_types)
     
@@ -177,19 +177,33 @@ Exemples de bonnes descriptions:
         }
         
         # Call Bedrock
+        print(f"Calling Bedrock with model: {model_id}")
+        print(f"Image base64 length: {len(image_base64)}")
+        
         response = bedrock_runtime.invoke_model(
             modelId=model_id,
-            body=json.dumps(request_body),
-            contentType="application/json",
-            accept="application/json"
+            body=json.dumps(request_body)
         )
         
         # Parse response
         response_body = json.loads(response['body'].read())
-        content = response_body.get('content', [{}])[0].get('text', '{}')
+        print(f"Bedrock raw response: {response_body}")
+        
+        # Extract text content from Claude response (same pattern as showcase_generation.py)
+        content_blocks = response_body.get('content', [])
+        text_content = ""
+        for block in content_blocks:
+            if block.get('type') == 'text':
+                text_content = block.get('text', '')
+                break
+        
+        if not text_content:
+            raise Exception(f"Empty response from Claude. Full response: {response_body}")
+        
+        print(f"Claude text response: {text_content}")
         
         # Parse the JSON response from Claude
-        result = json.loads(content)
+        result = json.loads(text_content)
         
         # Validate the type is in the valid list
         if result.get('type') not in valid_types:
@@ -223,7 +237,8 @@ def generate_outfit_variations_descriptions(image_base64: str, original_descript
     Returns:
         list of 10 variation description strings
     """
-    model_id = "global.anthropic.claude-sonnet-4-5-20250929-v1:0"
+    # Claude Sonnet 4.5 model ID - use 'us.' prefix (same as showcase_generation.py)
+    model_id = "us.anthropic.claude-sonnet-4-5-20250929-v1:0"
     
     prompt = f"""Regarde cette image de vêtement. La description originale est: "{original_description}"
 
