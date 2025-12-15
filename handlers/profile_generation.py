@@ -330,7 +330,7 @@ def start_profile_generation(event):
         'candidate_images': candidate_images,  # All images to try for face detection
         'status': 'generating',  # generating, completed, error
         'progress': Decimal('0'),
-        'total_photos': 4,
+        'total_photos': 16,  # 4 images x 4 zoom levels
         'generated_photos': [],
         'error': None,
         'created_at': datetime.now().isoformat(),
@@ -363,11 +363,11 @@ def start_profile_generation(event):
 def generate_profile_photos_async(job_id):
     """
     Generate profile photo crops asynchronously - called by Lambda invoke
-    Uses 4 DIFFERENT showcase photos with varying zoom levels
-    Each photo gets a different zoom level for variety
+    Uses up to 4 showcase photos × 4 zoom levels = 16 photos total
+    Each photo gets ALL zoom levels for maximum variety
     Updates DynamoDB progressively as each crop is generated
     """
-    print(f"[{job_id}] Starting async profile photo cropping (multi-image mode)...")
+    print(f"[{job_id}] Starting async profile photo cropping (16 photos mode: 4 images × 4 zooms)...")
     
     try:
         # Get job from DynamoDB
@@ -383,8 +383,7 @@ def generate_profile_photos_async(job_id):
         
         print(f"[{job_id}] Found {len(candidate_images)} candidate images")
         
-        # We want 4 photos from different source images
-        # Different zoom levels for variety
+        # 4 zoom levels to apply to each image
         zoom_configs = [
             {'padding': 0.3, 'style': 'close_up'},    # Zoom serré
             {'padding': 0.5, 'style': 'standard'},    # Zoom standard
@@ -393,119 +392,104 @@ def generate_profile_photos_async(job_id):
         ]
         
         generated_photos = []
-        images_used = []
+        total_photos = 16  # 4 images × 4 zooms
+        photo_index = 0
         
-        # Download and process each candidate image (up to 4)
-        for i in range(min(4, len(candidate_images))):
-            img_url = candidate_images[i]
-            zoom_config = zoom_configs[i]
-            
+        # Use up to 4 source images
+        images_to_process = candidate_images[:4]
+        
+        # If less than 4 images, repeat the first ones to fill
+        while len(images_to_process) < 4 and len(candidate_images) > 0:
+            images_to_process.append(candidate_images[len(images_to_process) % len(candidate_images)])
+        
+        print(f"[{job_id}] Processing {len(images_to_process)} images × 4 zoom levels = {total_photos} photos")
+        
+        # Download all images first
+        downloaded_images = []
+        for i, img_url in enumerate(images_to_process):
             try:
-                print(f"[{job_id}] Processing image {i+1}/4: {img_url[:50]}...")
-                
-                # Download image
+                print(f"[{job_id}] Downloading image {i+1}/4: {img_url[:50]}...")
                 req = urllib.request.Request(img_url)
                 with urllib.request.urlopen(req, timeout=30) as img_response:
                     image_data = img_response.read()
-                
-                # Generate single crop with specific zoom level
-                cropped_bytes, face_detected = generate_single_profile_crop(
-                    image_data, 
-                    padding_factor=zoom_config['padding'],
-                    crop_style=zoom_config['style']
-                )
-                
-                if cropped_bytes:
-                    # Upload to S3 with cache headers
-                    photo_key = f"ambassadors/{ambassador_id}/profile_options/profile_{i+1}_{uuid.uuid4().hex[:8]}.png"
-                    photo_url = upload_to_s3(photo_key, cropped_bytes, 'image/png', cache_days=365)
-                    
-                    photo_data = {
-                        'index': i,
-                        'url': photo_url,
-                        'style': zoom_config['style'],
-                        'face_detected': face_detected,
-                        'source_image': img_url[:100]  # Keep reference to source
-                    }
-                    generated_photos.append(photo_data)
-                    images_used.append(img_url)
-                    
-                    print(f"[{job_id}] ✓ Profile {i+1}/4 ({zoom_config['style']}) - face:{face_detected}")
-                else:
-                    print(f"[{job_id}] ✗ Failed to crop image {i+1}")
+                downloaded_images.append({'url': img_url, 'data': image_data})
+            except Exception as e:
+                print(f"[{job_id}] Error downloading image {i+1}: {e}")
+                downloaded_images.append(None)
+        
+        # Generate 16 photos: each image × each zoom level
+        for img_idx, img_info in enumerate(downloaded_images):
+            if img_info is None:
+                # Skip failed downloads, but add placeholder entries
+                for zoom_config in zoom_configs:
                     generated_photos.append({
-                        'index': i,
-                        'error': 'Failed to crop image',
+                        'index': photo_index,
+                        'image_index': img_idx,
+                        'error': 'Image download failed',
                         'style': zoom_config['style']
                     })
-                    
-            except Exception as e:
-                print(f"[{job_id}] ✗ Error processing image {i+1}: {e}")
-                generated_photos.append({
-                    'index': i,
-                    'error': str(e),
-                    'style': zoom_config['style']
-                })
+                    photo_index += 1
+                continue
             
-            # Update progress in DynamoDB after each photo
-            progress = Decimal(str(((i + 1) / 4) * 100))
-            jobs_table.update_item(
-                Key={'id': job_id},
-                UpdateExpression='SET generated_photos = :photos, progress = :prog, updated_at = :updated',
-                ExpressionAttributeValues={
-                    ':photos': generated_photos,
-                    ':prog': progress,
-                    ':updated': datetime.now().isoformat()
-                }
-            )
-        
-        # If we have less than 4 candidate images, fill remaining slots with different zooms of best image
-        if len(candidate_images) < 4 and len(images_used) > 0:
-            print(f"[{job_id}] Only {len(candidate_images)} images, filling remaining with different zooms...")
-            
-            # Use the first image (most likely to have a face) for remaining slots
-            best_image_url = images_used[0] if images_used else candidate_images[0]
-            
-            try:
-                req = urllib.request.Request(best_image_url)
-                with urllib.request.urlopen(req, timeout=30) as img_response:
-                    best_image_data = img_response.read()
-                
-                for i in range(len(candidate_images), 4):
-                    zoom_config = zoom_configs[i]
-                    
+            for zoom_idx, zoom_config in enumerate(zoom_configs):
+                try:
+                    # Generate crop with this zoom level
                     cropped_bytes, face_detected = generate_single_profile_crop(
-                        best_image_data,
+                        img_info['data'],
                         padding_factor=zoom_config['padding'],
                         crop_style=zoom_config['style']
                     )
                     
                     if cropped_bytes:
-                        photo_key = f"ambassadors/{ambassador_id}/profile_options/profile_{i+1}_{uuid.uuid4().hex[:8]}.png"
+                        # Upload to S3 with cache headers
+                        photo_key = f"ambassadors/{ambassador_id}/profile_options/profile_img{img_idx+1}_zoom{zoom_idx+1}_{uuid.uuid4().hex[:8]}.png"
                         photo_url = upload_to_s3(photo_key, cropped_bytes, 'image/png', cache_days=365)
                         
-                        generated_photos.append({
-                            'index': i,
+                        photo_data = {
+                            'index': photo_index,
+                            'image_index': img_idx,  # Which source image (0-3)
+                            'zoom_index': zoom_idx,  # Which zoom level (0-3)
                             'url': photo_url,
                             'style': zoom_config['style'],
                             'face_detected': face_detected,
-                            'source_image': best_image_url[:100]
-                        })
-                        print(f"[{job_id}] ✓ Profile {i+1}/4 (fallback {zoom_config['style']}) - face:{face_detected}")
-                    
-                    # Update progress
-                    progress = Decimal(str(((i + 1) / 4) * 100))
-                    jobs_table.update_item(
-                        Key={'id': job_id},
-                        UpdateExpression='SET generated_photos = :photos, progress = :prog, updated_at = :updated',
-                        ExpressionAttributeValues={
-                            ':photos': generated_photos,
-                            ':prog': progress,
-                            ':updated': datetime.now().isoformat()
+                            'source_image': img_info['url'][:100]
                         }
-                    )
-            except Exception as e:
-                print(f"[{job_id}] Error in fallback generation: {e}")
+                        generated_photos.append(photo_data)
+                        
+                        print(f"[{job_id}] ✓ Photo {photo_index+1}/16 (img{img_idx+1}/{zoom_config['style']}) - face:{face_detected}")
+                    else:
+                        generated_photos.append({
+                            'index': photo_index,
+                            'image_index': img_idx,
+                            'zoom_index': zoom_idx,
+                            'error': 'Failed to crop image',
+                            'style': zoom_config['style']
+                        })
+                        print(f"[{job_id}] ✗ Failed photo {photo_index+1}/16")
+                        
+                except Exception as e:
+                    print(f"[{job_id}] ✗ Error photo {photo_index+1}/16: {e}")
+                    generated_photos.append({
+                        'index': photo_index,
+                        'image_index': img_idx,
+                        'zoom_index': zoom_idx,
+                        'error': str(e),
+                        'style': zoom_config['style']
+                    })
+                
+                photo_index += 1
+                
+                # Update progress in DynamoDB after each photo
+                progress = Decimal(str((photo_index / total_photos) * 100))
+                jobs_table.update_item(
+                    Key={'id': job_id},
+                    UpdateExpression='SET generated_photos = :photos, progress = :prog, updated_at = :updated',
+                    ExpressionAttributeValues={
+                        ':photos': generated_photos,
+                        ':prog': progress,
+                        ':updated': datetime.now().isoformat()
+                    }
+                )
         
         # Mark job as completed
         successful_photos = [p for p in generated_photos if 'url' in p]
@@ -535,20 +519,7 @@ def generate_profile_photos_async(job_id):
             }
         )
         
-        print(f"[{job_id}] Profile photo cropping completed: {len(successful_photos)}/4 successful")
-        
-    except Exception as e:
-        print(f"[{job_id}] Fatal error in async cropping: {e}")
-        jobs_table.update_item(
-            Key={'id': job_id},
-            UpdateExpression='SET #status = :status, error = :error, updated_at = :updated',
-            ExpressionAttributeNames={'#status': 'status'},
-            ExpressionAttributeValues={
-                ':status': 'error',
-                ':error': str(e),
-                ':updated': datetime.now().isoformat()
-            }
-        )
+        print(f"[{job_id}] Profile photo cropping completed: {len(successful_photos)}/16 successful")
         
     except Exception as e:
         print(f"[{job_id}] Fatal error in async cropping: {e}")
