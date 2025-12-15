@@ -94,6 +94,9 @@ from handlers.showcase_videos import (
 # Import outfit variations handlers
 from handlers.outfit_variations import (
     generate_outfit_variations,
+    start_outfit_variations,
+    generate_variation_image,
+    get_variations_job_status,
     apply_outfit_variation,
 )
 
@@ -317,15 +320,24 @@ def lambda_handler(event, context):
     # Outfit parameterized routes
     # Handle outfit variations routes first (more specific path)
     if '/variations' in path and path.startswith('/api/admin/outfits/'):
-        # Extract outfit_id from path: /api/admin/outfits/{id}/variations
+        # Extract outfit_id from path: /api/admin/outfits/{id}/variations[/generate|/status]
         parts = path.split('/')
         if len(parts) >= 6 and parts[5] == 'variations':
             outfit_id = parts[4]
             event['pathParameters'] = event.get('pathParameters', {}) or {}
             event['pathParameters']['id'] = outfit_id
             
+            # Check for sub-routes: /variations/generate or /variations/status
+            if len(parts) >= 7:
+                sub_route = parts[6]
+                if sub_route == 'generate' and http_method == 'POST':
+                    return generate_variation_image(event)
+                elif sub_route == 'status' and http_method == 'GET':
+                    return get_variations_job_status(event)
+            
+            # Base variations route
             if http_method == 'POST':
-                return generate_outfit_variations(event)
+                return start_outfit_variations(event)
             elif http_method == 'PUT':
                 return apply_outfit_variation(event)
     

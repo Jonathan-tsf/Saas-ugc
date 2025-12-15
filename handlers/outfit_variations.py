@@ -1,13 +1,15 @@
 """
 Outfit Variations Handler
-Generate 10 variations of an outfit using Nano Banana Pro (Gemini 3 Pro Image)
+Generate 6 variations of an outfit using Nano Banana Pro (Gemini 3 Pro Image)
+
+Uses async job system with polling to avoid API Gateway 29-second timeout.
 """
 import json
 import uuid
 import base64
 import requests
 from datetime import datetime
-from concurrent.futures import ThreadPoolExecutor, as_completed
+from decimal import Decimal
 
 from config import (
     response, decimal_to_python, verify_admin,
@@ -15,23 +17,30 @@ from config import (
     generate_outfit_variations_descriptions, NANO_BANANA_API_KEY
 )
 
-# DynamoDB table for outfits
+# DynamoDB tables
 outfits_table = dynamodb.Table('outfits')
+jobs_table = dynamodb.Table('nano_banana_jobs')
 
 # Gemini 3 Pro Image (Nano Banana Pro) endpoint
 GEMINI_API_URL = "https://generativelanguage.googleapis.com/v1beta/models/gemini-3-pro-image-preview:generateContent"
 
+# Number of variations to generate (reduced from 10 to fit timing constraints)
+NUM_VARIATIONS = 6
 
-def generate_single_variation(description: str, index: int) -> dict:
+
+def generate_single_variation_image(description: str, index: int, job_id: str, outfit_id: str) -> dict:
     """
     Generate a single outfit variation image using Nano Banana Pro (Gemini 3 Pro Image).
+    Saves the result directly to S3 and updates the job in DynamoDB.
     
     Args:
         description: The variation description
-        index: The variation index (0-9)
+        index: The variation index (0-5)
+        job_id: The job ID for tracking
+        outfit_id: The outfit ID for S3 path
     
     Returns:
-        dict with 'index', 'description', 'image_base64' or 'error'
+        dict with 'index', 'description', 'image_url' or 'error'
     """
     try:
         prompt = f"""Generate a professional product photo of this clothing item on a pure white background:
@@ -112,10 +121,15 @@ Requirements:
                 'error': "No image in response"
             }
         
+        # Save image to S3
+        s3_key = f"outfit-variations/{outfit_id}/{job_id}/variation_{index}.png"
+        image_data = base64.b64decode(image_base64)
+        image_url = upload_to_s3(s3_key, image_data, 'image/png', cache_days=7)
+        
         return {
             'index': index,
             'description': description,
-            'image_base64': image_base64
+            'image_url': image_url
         }
         
     except Exception as e:
@@ -127,19 +141,19 @@ Requirements:
         }
 
 
-def generate_outfit_variations(event):
+def start_outfit_variations(event):
     """
-    Generate 6 variations of an outfit - POST /api/admin/outfits/{id}/variations
+    Start generating variations for an outfit - POST /api/admin/outfits/{id}/variations
     
-    Note: Reduced from 10 to 6 variations to stay under API Gateway 29-second timeout.
+    This is async: creates a job and returns immediately with job_id.
+    The client then polls for status.
     
+    Flow:
     1. Fetches the outfit from DynamoDB
     2. Downloads the outfit image from S3
-    3. Uses Bedrock Claude to generate 6 variation descriptions
-    4. Uses Nano Banana Pro to generate 6 variation images in parallel
-    5. Returns all variations with base64 images
-    
-    The user will then select which variation they want to apply.
+    3. Uses Bedrock Claude to generate variation descriptions (fast, ~8s)
+    4. Creates a job with status 'ready' and the descriptions
+    5. Returns job_id for polling
     """
     if not verify_admin(event):
         return response(401, {'error': 'Unauthorized'})
@@ -164,17 +178,15 @@ def generate_outfit_variations(event):
         if not image_url:
             return response(400, {'error': 'Outfit has no image'})
         
-        print(f"Generating variations for outfit {outfit_id}: {description}")
+        print(f"Starting variations job for outfit {outfit_id}: {description}")
         
         # Download the image from S3
-        # Extract the S3 key from the URL
         s3_key = image_url.replace(f"https://{S3_BUCKET}.s3.amazonaws.com/", "")
-        
         s3_response = s3.get_object(Bucket=S3_BUCKET, Key=s3_key)
         image_bytes = s3_response['Body'].read()
         image_base64 = base64.b64encode(image_bytes).decode('utf-8')
         
-        # Generate 10 variation descriptions using Bedrock Claude
+        # Generate variation descriptions using Bedrock Claude (this is fast, ~8s)
         print("Generating variation descriptions with Bedrock Claude...")
         variation_descriptions = generate_outfit_variations_descriptions(image_base64, description)
         
@@ -182,46 +194,216 @@ def generate_outfit_variations(event):
         for i, desc in enumerate(variation_descriptions):
             print(f"  {i+1}. {desc}")
         
-        # Generate all 10 variations in parallel using Nano Banana Pro
-        print("Generating variation images with Nano Banana Pro...")
+        # Create job record
+        job_id = str(uuid.uuid4())
+        now = datetime.now().isoformat()
+        
+        # Prepare variations list with pending status
         variations = []
+        for i, desc in enumerate(variation_descriptions[:NUM_VARIATIONS]):
+            variations.append({
+                'index': i,
+                'description': desc,
+                'status': 'pending',
+                'image_url': None,
+                'error': None
+            })
         
-        with ThreadPoolExecutor(max_workers=5) as executor:
-            futures = {
-                executor.submit(generate_single_variation, desc, i): i 
-                for i, desc in enumerate(variation_descriptions)
-            }
-            
-            for future in as_completed(futures):
-                result = future.result()
-                variations.append(result)
+        job_item = {
+            'job_id': job_id,
+            'job_type': 'outfit_variations',
+            'outfit_id': outfit_id,
+            'original_description': description,
+            'status': 'ready',  # Ready to generate images
+            'variations': variations,
+            'completed_count': 0,
+            'total_count': len(variations),
+            'created_at': now,
+            'updated_at': now,
+            'ttl': int(datetime.now().timestamp()) + 86400  # 24 hour TTL
+        }
         
-        # Sort by index
-        variations.sort(key=lambda x: x['index'])
-        
-        # Count successes and failures
-        successes = [v for v in variations if 'image_base64' in v]
-        failures = [v for v in variations if 'error' in v]
-        
-        print(f"Generated {len(successes)} successful variations, {len(failures)} failures")
+        jobs_table.put_item(Item=job_item)
         
         return response(200, {
             'success': True,
+            'job_id': job_id,
+            'status': 'ready',
             'outfit_id': outfit_id,
             'original_description': description,
+            'total_variations': len(variations),
             'variations': variations,
-            'stats': {
-                'total': len(variations),
-                'success': len(successes),
-                'failed': len(failures)
-            }
+            'message': 'Variation descriptions generated. Call /generate endpoint to create images.'
         })
         
     except Exception as e:
-        print(f"Error generating outfit variations: {e}")
+        print(f"Error starting outfit variations: {e}")
         import traceback
         traceback.print_exc()
-        return response(500, {'error': f'Failed to generate variations: {str(e)}'})
+        return response(500, {'error': f'Failed to start variations: {str(e)}'})
+
+
+def generate_variation_image(event):
+    """
+    Generate a single variation image - POST /api/admin/outfits/{id}/variations/generate
+    
+    Body: {
+        "job_id": "uuid",
+        "variation_index": 0
+    }
+    
+    Generates one image at a time to avoid timeout.
+    Returns the image URL when done.
+    """
+    if not verify_admin(event):
+        return response(401, {'error': 'Unauthorized'})
+    
+    try:
+        path_params = event.get('pathParameters', {}) or {}
+        outfit_id = path_params.get('id')
+        
+        if not outfit_id:
+            return response(400, {'error': 'Outfit ID is required'})
+        
+        body = json.loads(event.get('body', '{}'))
+        job_id = body.get('job_id')
+        variation_index = body.get('variation_index')
+        
+        if not job_id:
+            return response(400, {'error': 'job_id is required'})
+        
+        if variation_index is None:
+            return response(400, {'error': 'variation_index is required'})
+        
+        # Get the job
+        result = jobs_table.get_item(Key={'job_id': job_id})
+        job = result.get('Item')
+        
+        if not job:
+            return response(404, {'error': 'Job not found'})
+        
+        if job.get('outfit_id') != outfit_id:
+            return response(400, {'error': 'Job does not match outfit'})
+        
+        variations = job.get('variations', [])
+        
+        if variation_index < 0 or variation_index >= len(variations):
+            return response(400, {'error': f'Invalid variation_index. Must be 0-{len(variations)-1}'})
+        
+        variation = variations[variation_index]
+        
+        # Check if already generated
+        if variation.get('status') == 'completed' and variation.get('image_url'):
+            return response(200, {
+                'success': True,
+                'variation': variation,
+                'already_generated': True
+            })
+        
+        # Mark as generating
+        variation['status'] = 'generating'
+        jobs_table.update_item(
+            Key={'job_id': job_id},
+            UpdateExpression='SET variations = :vars, updated_at = :updated',
+            ExpressionAttributeValues={
+                ':vars': variations,
+                ':updated': datetime.now().isoformat()
+            }
+        )
+        
+        # Generate the image
+        print(f"Generating variation {variation_index} for job {job_id}")
+        result = generate_single_variation_image(
+            variation['description'],
+            variation_index,
+            job_id,
+            outfit_id
+        )
+        
+        # Update the variation with result
+        if 'error' in result:
+            variation['status'] = 'failed'
+            variation['error'] = result['error']
+        else:
+            variation['status'] = 'completed'
+            variation['image_url'] = result['image_url']
+        
+        # Count completed
+        completed_count = sum(1 for v in variations if v.get('status') == 'completed')
+        failed_count = sum(1 for v in variations if v.get('status') == 'failed')
+        
+        # Determine job status
+        if completed_count + failed_count >= len(variations):
+            job_status = 'completed'
+        else:
+            job_status = 'in_progress'
+        
+        # Update job
+        jobs_table.update_item(
+            Key={'job_id': job_id},
+            UpdateExpression='SET variations = :vars, #status = :status, completed_count = :completed, updated_at = :updated',
+            ExpressionAttributeNames={'#status': 'status'},
+            ExpressionAttributeValues={
+                ':vars': variations,
+                ':status': job_status,
+                ':completed': completed_count,
+                ':updated': datetime.now().isoformat()
+            }
+        )
+        
+        return response(200, {
+            'success': 'error' not in result,
+            'variation': variation,
+            'job_status': job_status,
+            'completed_count': completed_count,
+            'total_count': len(variations)
+        })
+        
+    except Exception as e:
+        print(f"Error generating variation image: {e}")
+        import traceback
+        traceback.print_exc()
+        return response(500, {'error': f'Failed to generate variation: {str(e)}'})
+
+
+def get_variations_job_status(event):
+    """
+    Get status of a variations job - GET /api/admin/outfits/{id}/variations/status?job_id=xxx
+    """
+    if not verify_admin(event):
+        return response(401, {'error': 'Unauthorized'})
+    
+    try:
+        path_params = event.get('pathParameters', {}) or {}
+        outfit_id = path_params.get('id')
+        
+        query_params = event.get('queryStringParameters', {}) or {}
+        job_id = query_params.get('job_id')
+        
+        if not outfit_id:
+            return response(400, {'error': 'Outfit ID is required'})
+        
+        if not job_id:
+            return response(400, {'error': 'job_id query parameter is required'})
+        
+        # Get the job
+        result = jobs_table.get_item(Key={'job_id': job_id})
+        job = result.get('Item')
+        
+        if not job:
+            return response(404, {'error': 'Job not found'})
+        
+        if job.get('outfit_id') != outfit_id:
+            return response(400, {'error': 'Job does not match outfit'})
+        
+        return response(200, {
+            'success': True,
+            'job': decimal_to_python(job)
+        })
+        
+    except Exception as e:
+        print(f"Error getting variations job status: {e}")
+        return response(500, {'error': f'Failed to get job status: {str(e)}'})
 
 
 def apply_outfit_variation(event):
@@ -229,6 +411,12 @@ def apply_outfit_variation(event):
     Apply a selected variation to an outfit - PUT /api/admin/outfits/{id}/variations
     
     Body: {
+        "description": "New description",
+        "image_url": "S3 URL of the variation image"
+    }
+    
+    OR (legacy support):
+    {
         "description": "New description",
         "image_base64": "base64 encoded image"
     }
@@ -247,10 +435,14 @@ def apply_outfit_variation(event):
         
         body = json.loads(event.get('body', '{}'))
         new_description = body.get('description')
+        image_url = body.get('image_url')
         image_base64 = body.get('image_base64')
         
-        if not new_description or not image_base64:
-            return response(400, {'error': 'description and image_base64 are required'})
+        if not new_description:
+            return response(400, {'error': 'description is required'})
+        
+        if not image_url and not image_base64:
+            return response(400, {'error': 'image_url or image_base64 is required'})
         
         # Check if outfit exists
         result = outfits_table.get_item(Key={'id': outfit_id})
@@ -259,10 +451,19 @@ def apply_outfit_variation(event):
         if not outfit:
             return response(404, {'error': 'Outfit not found'})
         
-        # Upload new image to S3
-        image_key = f"outfits/{outfit_id}.png"
-        image_data = base64.b64decode(image_base64)
-        image_url = upload_to_s3(image_key, image_data, 'image/png', cache_days=365)
+        # If image_url is provided, download it and re-upload to permanent location
+        # If image_base64 is provided (legacy), upload that
+        if image_url:
+            # Download from variation URL
+            s3_key = image_url.replace(f"https://{S3_BUCKET}.s3.amazonaws.com/", "")
+            s3_response = s3.get_object(Bucket=S3_BUCKET, Key=s3_key)
+            image_data = s3_response['Body'].read()
+        else:
+            image_data = base64.b64decode(image_base64)
+        
+        # Upload to permanent outfit location
+        permanent_key = f"outfits/{outfit_id}.png"
+        final_image_url = upload_to_s3(permanent_key, image_data, 'image/png', cache_days=365)
         
         # Update the outfit in DynamoDB
         outfits_table.update_item(
@@ -270,7 +471,7 @@ def apply_outfit_variation(event):
             UpdateExpression="SET description = :desc, image_url = :url, updated_at = :updated",
             ExpressionAttributeValues={
                 ':desc': new_description,
-                ':url': image_url,
+                ':url': final_image_url,
                 ':updated': datetime.now().isoformat()
             }
         )
@@ -287,3 +488,12 @@ def apply_outfit_variation(event):
     except Exception as e:
         print(f"Error applying outfit variation: {e}")
         return response(500, {'error': f'Failed to apply variation: {str(e)}'})
+
+
+# Legacy function name for backwards compatibility
+def generate_outfit_variations(event):
+    """
+    Legacy endpoint - redirects to start_outfit_variations
+    POST /api/admin/outfits/{id}/variations
+    """
+    return start_outfit_variations(event)

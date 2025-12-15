@@ -70,6 +70,9 @@ from handlers.products import (
 
 from handlers.outfit_variations import (
     generate_outfit_variations,
+    start_outfit_variations,
+    generate_variation_image,
+    get_variations_job_status,
     apply_outfit_variation,
 )
 
@@ -126,5 +129,8 @@ __all__ = [
     'increment_product_count',
     # Outfit Variations
     'generate_outfit_variations',
+    'start_outfit_variations',
+    'generate_variation_image',
+    'get_variations_job_status',
     'apply_outfit_variation',
 ]
