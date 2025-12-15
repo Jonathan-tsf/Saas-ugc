@@ -230,12 +230,15 @@ CHECKLIST POUR CHAQUE DESCRIPTION:
         text_content = text_content.strip()
         
         scenes = json.loads(text_content)
+        print(f"✅ Claude generated {len(scenes)} scenes successfully")
         return scenes
         
     except Exception as e:
-        print(f"Error calling Claude: {e}")
-        # Fallback to default scenes if Claude fails
-        return generate_fallback_scenes(available_categories, ambassador_gender)
+        print(f"❌ ERROR calling Claude for scene generation: {e}")
+        import traceback
+        traceback.print_exc()
+        # Re-raise the exception instead of using fallback - we want to see the error
+        raise Exception(f"Claude scene generation failed: {e}")
 
 
 def generate_fallback_scenes(available_categories, ambassador_gender):
