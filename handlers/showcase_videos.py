@@ -378,11 +378,19 @@ def start_showcase_video_generation(event):
         'job_id': job_id
     }
     
-    lambda_client.invoke(
-        FunctionName=os.environ.get('AWS_LAMBDA_FUNCTION_NAME', 'ugc-booking'),
-        InvocationType='Event',
-        Payload=json.dumps(payload)
-    )
+    function_name = os.environ.get('AWS_LAMBDA_FUNCTION_NAME', 'ugc-booking')
+    print(f"[{job_id}] Invoking async Lambda: {function_name}")
+    
+    try:
+        invoke_response = lambda_client.invoke(
+            FunctionName=function_name,
+            InvocationType='Event',
+            Payload=json.dumps(payload)
+        )
+        print(f"[{job_id}] Async invoke response: StatusCode={invoke_response.get('StatusCode')}")
+    except Exception as e:
+        print(f"[{job_id}] ERROR invoking async Lambda: {e}")
+        # Still return success, job is created
     
     return response(200, {
         'success': True,
@@ -652,10 +660,14 @@ def get_showcase_video_status(event):
         job = result.get('Item')
         
         if not job:
+            print(f"[STATUS] Job {job_id} not found in DynamoDB")
             return response(404, {'error': 'Job not found'})
         
         # Clean up response
         job_data = decimal_to_python(job)
+        
+        # Debug logging
+        print(f"[STATUS] Job {job_id}: status={job_data.get('status')}, progress={job_data.get('progress')}, videos={len(job_data.get('generated_videos', []))}")
         
         return response(200, {
             'job_id': job_id,
@@ -691,9 +703,15 @@ def get_ambassador_showcase_videos(event):
         ambassador = result.get('Item')
         
         if not ambassador:
+            print(f"[GET_VIDEOS] Ambassador {ambassador_id} not found")
             return response(404, {'error': 'Ambassador not found'})
         
         videos = ambassador.get('showcase_videos', [])
+        
+        # Debug logging
+        print(f"[GET_VIDEOS] Ambassador {ambassador_id}: found {len(videos)} videos")
+        if videos:
+            print(f"[GET_VIDEOS] First video URL: {videos[0].get('url', 'NO URL')[:100]}...")
         
         return response(200, {
             'success': True,
