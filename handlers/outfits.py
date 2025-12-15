@@ -9,11 +9,15 @@ from datetime import datetime
 
 from config import (
     response, decimal_to_python, verify_admin,
-    dynamodb, s3, S3_BUCKET, upload_to_s3
+    dynamodb, s3, S3_BUCKET, upload_to_s3, analyze_outfit_image
 )
 
 # DynamoDB table for outfits
 outfits_table = dynamodb.Table('outfits')
+
+# Valid outfit types and genders
+VALID_TYPES = ['sport', 'casual', 'elegant', 'streetwear', 'fitness', 'outdoor']
+VALID_GENDERS = ['male', 'female', 'unisex']
 
 
 def get_outfits(event):
@@ -78,7 +82,14 @@ def get_outfit(event):
 
 
 def create_outfit(event):
-    """Create a new outfit - POST /api/admin/outfits"""
+    """
+    Create a new outfit - POST /api/admin/outfits
+    Uses AWS Bedrock Claude Haiku to automatically analyze the image
+    and generate description + type.
+    
+    Required fields: gender, image_base64
+    Optional fields: description, type (if not provided, AI will generate them)
+    """
     if not verify_admin(event):
         return response(401, {'error': 'Unauthorized'})
     
@@ -87,26 +98,37 @@ def create_outfit(event):
     except:
         return response(400, {'error': 'Invalid JSON body'})
     
-    description = body.get('description')
-    outfit_type = body.get('type')
     gender = body.get('gender')
     image_base64 = body.get('image_base64')
     
-    if not all([description, outfit_type, gender, image_base64]):
-        return response(400, {'error': 'description, type, gender, and image_base64 are required'})
+    # Description and type are now optional - AI will generate if not provided
+    manual_description = body.get('description')
+    manual_type = body.get('type')
     
-    # Validate type
-    valid_types = ['sport', 'casual', 'elegant', 'streetwear', 'fitness', 'outdoor']
-    if outfit_type not in valid_types:
-        return response(400, {'error': f'Invalid type. Must be one of: {", ".join(valid_types)}'})
+    if not all([gender, image_base64]):
+        return response(400, {'error': 'gender and image_base64 are required'})
     
     # Validate gender
-    valid_genders = ['male', 'female', 'unisex']
-    if gender not in valid_genders:
-        return response(400, {'error': f'Invalid gender. Must be one of: {", ".join(valid_genders)}'})
+    if gender not in VALID_GENDERS:
+        return response(400, {'error': f'Invalid gender. Must be one of: {", ".join(VALID_GENDERS)}'})
     
     try:
         outfit_id = str(uuid.uuid4())
+        
+        # Use AI to analyze the image if description or type not provided
+        if not manual_description or not manual_type:
+            print(f"Analyzing outfit image with Bedrock Haiku...")
+            ai_result = analyze_outfit_image(image_base64, VALID_TYPES)
+            description = manual_description or ai_result.get('description', 'Tenue sport')
+            outfit_type = manual_type or ai_result.get('type', 'sport')
+            print(f"AI analysis: description='{description}', type='{outfit_type}'")
+        else:
+            description = manual_description
+            outfit_type = manual_type
+        
+        # Validate type (in case manual type was provided)
+        if outfit_type not in VALID_TYPES:
+            return response(400, {'error': f'Invalid type. Must be one of: {", ".join(VALID_TYPES)}'})
         
         # Upload image to S3 with cache headers
         image_key = f"outfits/{outfit_id}.png"
@@ -170,16 +192,14 @@ def update_outfit(event):
             expr_values[':description'] = body['description']
         
         if 'type' in body:
-            valid_types = ['sport', 'casual', 'elegant', 'streetwear', 'fitness', 'outdoor']
-            if body['type'] not in valid_types:
-                return response(400, {'error': f'Invalid type. Must be one of: {", ".join(valid_types)}'})
+            if body['type'] not in VALID_TYPES:
+                return response(400, {'error': f'Invalid type. Must be one of: {", ".join(VALID_TYPES)}'})
             update_expr += ", #type = :type"
             expr_values[':type'] = body['type']
         
         if 'gender' in body:
-            valid_genders = ['male', 'female', 'unisex']
-            if body['gender'] not in valid_genders:
-                return response(400, {'error': f'Invalid gender. Must be one of: {", ".join(valid_genders)}'})
+            if body['gender'] not in VALID_GENDERS:
+                return response(400, {'error': f'Invalid gender. Must be one of: {", ".join(VALID_GENDERS)}'})
             update_expr += ", gender = :gender"
             expr_values[':gender'] = body['gender']
         

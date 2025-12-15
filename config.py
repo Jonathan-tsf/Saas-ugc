@@ -26,6 +26,7 @@ ambassadors_table = dynamodb.Table(AMBASSADORS_TABLE_NAME)
 ses = boto3.client('ses', region_name='us-east-1')
 s3 = boto3.client('s3', region_name='us-east-1')
 lambda_client = boto3.client('lambda', region_name='us-east-1')
+bedrock_runtime = boto3.client('bedrock-runtime', region_name='us-east-1')
 
 # CORS Headers
 CORS_HEADERS = {
@@ -101,4 +102,95 @@ def verify_admin(event):
         return True
     
     return hashlib.sha256(token.encode()).hexdigest() == ADMIN_PASSWORD_HASH
+
+
+def analyze_outfit_image(image_base64: str, valid_types: list) -> dict:
+    """
+    Use AWS Bedrock Claude Haiku to analyze an outfit image.
+    Returns description and type.
+    
+    Args:
+        image_base64: Base64 encoded image
+        valid_types: List of valid outfit types to choose from
+    
+    Returns:
+        dict with 'description' and 'type' keys
+    """
+    import base64
+    
+    # Claude Haiku model ID
+    model_id = "anthropic.claude-3-haiku-20240307-v1:0"
+    
+    types_list = ", ".join(valid_types)
+    
+    prompt = f"""Analyze this clothing/outfit image and provide:
+1. A short description (max 50 characters) in French describing the outfit/clothing item
+2. Choose the most appropriate type from this list: {types_list}
+
+Respond ONLY with valid JSON in this exact format, nothing else:
+{{"description": "your description here", "type": "chosen_type"}}
+
+The description should be concise, like: "T-shirt noir Nike", "Legging sport rose", "Sweat à capuche gris"
+"""
+
+    try:
+        # Prepare the request body for Claude
+        request_body = {
+            "anthropic_version": "bedrock-2023-05-31",
+            "max_tokens": 200,
+            "messages": [
+                {
+                    "role": "user",
+                    "content": [
+                        {
+                            "type": "image",
+                            "source": {
+                                "type": "base64",
+                                "media_type": "image/png",
+                                "data": image_base64
+                            }
+                        },
+                        {
+                            "type": "text",
+                            "text": prompt
+                        }
+                    ]
+                }
+            ]
+        }
+        
+        # Call Bedrock
+        response = bedrock_runtime.invoke_model(
+            modelId=model_id,
+            body=json.dumps(request_body),
+            contentType="application/json",
+            accept="application/json"
+        )
+        
+        # Parse response
+        response_body = json.loads(response['body'].read())
+        content = response_body.get('content', [{}])[0].get('text', '{}')
+        
+        # Parse the JSON response from Claude
+        result = json.loads(content)
+        
+        # Validate the type is in the valid list
+        if result.get('type') not in valid_types:
+            result['type'] = valid_types[0]  # Default to first type
+        
+        # Ensure description is not too long
+        if len(result.get('description', '')) > 100:
+            result['description'] = result['description'][:97] + '...'
+        
+        print(f"Bedrock analysis result: {result}")
+        return result
+        
+    except Exception as e:
+        print(f"Error analyzing outfit with Bedrock: {e}")
+        # Return default values on error
+        return {
+            'description': 'Tenue sport',
+            'type': valid_types[0] if valid_types else 'sport'
+        }
+
 
