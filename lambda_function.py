@@ -91,6 +91,12 @@ from handlers.showcase_videos import (
     select_best_showcase_video,
 )
 
+# Import outfit variations handlers
+from handlers.outfit_variations import (
+    generate_outfit_variations,
+    apply_outfit_variation,
+)
+
 # Import authentication handlers
 from handlers.auth import (
     sign_up,
@@ -309,6 +315,20 @@ def lambda_handler(event, context):
         return delete_ambassador(event)
     
     # Outfit parameterized routes
+    # Handle outfit variations routes first (more specific path)
+    if '/variations' in path and path.startswith('/api/admin/outfits/'):
+        # Extract outfit_id from path: /api/admin/outfits/{id}/variations
+        parts = path.split('/')
+        if len(parts) >= 6 and parts[5] == 'variations':
+            outfit_id = parts[4]
+            event['pathParameters'] = event.get('pathParameters', {}) or {}
+            event['pathParameters']['id'] = outfit_id
+            
+            if http_method == 'POST':
+                return generate_outfit_variations(event)
+            elif http_method == 'PUT':
+                return apply_outfit_variation(event)
+    
     if path.startswith('/api/admin/outfits/') and path != '/api/admin/outfits/upload-url':
         if http_method == 'GET':
             return get_outfit(event)

@@ -68,6 +68,11 @@ from handlers.products import (
     increment_product_count,
 )
 
+from handlers.outfit_variations import (
+    generate_outfit_variations,
+    apply_outfit_variation,
+)
+
 __all__ = [
     # Bookings
     'get_availability',
@@ -119,4 +124,7 @@ __all__ = [
     'delete_product',
     'get_product_upload_url',
     'increment_product_count',
+    # Outfit Variations
+    'generate_outfit_variations',
+    'apply_outfit_variation',
 ]

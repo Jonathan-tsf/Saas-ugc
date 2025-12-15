@@ -111,8 +111,8 @@ def verify_admin(event):
 
 def analyze_outfit_image(image_base64: str, valid_types: list) -> dict:
     """
-    Use AWS Bedrock Claude Haiku to analyze an outfit image.
-    Returns description and type.
+    Use AWS Bedrock Claude Sonnet to analyze an outfit image.
+    Returns detailed description and type.
     
     Args:
         image_base64: Base64 encoded image
@@ -123,19 +123,31 @@ def analyze_outfit_image(image_base64: str, valid_types: list) -> dict:
     """
     import base64
     
-    # Claude Haiku model ID
+    # Claude Sonnet model ID
     model_id = "global.anthropic.claude-sonnet-4-5-20250929-v1:0"
     
     types_list = ", ".join(valid_types)
     
-    prompt = f"""Analyze this clothing/outfit image and provide:
-1. A short description (max 50 characters) in French describing the outfit/clothing item
-2. Choose the most appropriate type from this list: {types_list}
+    prompt = f"""Analyse cette image de vêtement/tenue et fournis:
 
-Respond ONLY with valid JSON in this exact format, nothing else:
-{{"description": "your description here", "type": "chosen_type"}}
+1. Une description TRÈS DÉTAILLÉE en français (100-150 caractères) qui décrit précisément:
+   - Le type de vêtement exact (t-shirt, débardeur, sweat, legging, short, etc.)
+   - La couleur principale et les couleurs secondaires
+   - Les motifs ou imprimés s'il y en a (logo, rayures, graphiques, etc.)
+   - Le style/coupe (ajusté, ample, crop, oversize, etc.)
+   - La marque si visible
+   - Les détails distinctifs (col, manches, fermetures, etc.)
 
-The description should be concise, like: "T-shirt noir Nike", "Legging sport rose", "Sweat à capuche gris"
+2. Choisis le type le plus approprié parmi: {types_list}
+
+Réponds UNIQUEMENT avec du JSON valide dans ce format exact:
+{{"description": "Ta description détaillée ici", "type": "type_choisi"}}
+
+Exemples de bonnes descriptions:
+- "T-shirt noir Nike Dri-FIT ajusté avec logo swoosh blanc sur la poitrine, col rond, manches courtes"
+- "Legging sport rose pastel taille haute, tissu compression, coutures apparentes sur les côtés"
+- "Sweat à capuche gris chiné oversize avec poche kangourou, cordon de serrage blanc, logo brodé"
+- "Brassière sport bleue marine avec bretelles croisées dans le dos, maintien fort, bande élastique large"
 """
 
     try:
@@ -183,9 +195,9 @@ The description should be concise, like: "T-shirt noir Nike", "Legging sport ros
         if result.get('type') not in valid_types:
             result['type'] = valid_types[0]  # Default to first type
         
-        # Ensure description is not too long
-        if len(result.get('description', '')) > 100:
-            result['description'] = result['description'][:97] + '...'
+        # Ensure description is not too long (now allows up to 200 chars for detailed descriptions)
+        if len(result.get('description', '')) > 200:
+            result['description'] = result['description'][:197] + '...'
         
         print(f"Bedrock analysis result: {result}")
         return result
@@ -197,5 +209,100 @@ The description should be concise, like: "T-shirt noir Nike", "Legging sport ros
             'description': 'Tenue sport',
             'type': valid_types[0] if valid_types else 'sport'
         }
+
+
+def generate_outfit_variations_descriptions(image_base64: str, original_description: str) -> list:
+    """
+    Use AWS Bedrock Claude Sonnet to generate 10 variation descriptions for an outfit.
+    These descriptions will be used to generate new outfit images with Nano Banana Pro.
+    
+    Args:
+        image_base64: Base64 encoded image of the original outfit
+        original_description: The original outfit description
+    
+    Returns:
+        list of 10 variation description strings
+    """
+    model_id = "global.anthropic.claude-sonnet-4-5-20250929-v1:0"
+    
+    prompt = f"""Regarde cette image de vêtement. La description originale est: "{original_description}"
+
+Génère exactement 10 variations créatives de ce vêtement. Chaque variation doit:
+- Garder le même TYPE de vêtement (si c'est un t-shirt, reste un t-shirt)
+- Changer les couleurs, motifs, ou style de manière créative
+- Être réaliste et vendable comme vêtement de sport/fitness
+- Être décrite en français avec 80-120 caractères
+
+Pour chaque variation, fournis une description COMPLÈTE qui pourrait être utilisée pour générer l'image du vêtement seul (sans mannequin, fond blanc, photo produit).
+
+Réponds UNIQUEMENT avec du JSON valide:
+{{"variations": [
+    "Description variation 1...",
+    "Description variation 2...",
+    ...
+    "Description variation 10..."
+]}}
+
+Exemples de bonnes variations pour un "T-shirt noir Nike":
+- "T-shirt blanc Nike avec logo swoosh rouge, coupe ajustée, col en V, tissu respirant"
+- "T-shirt bleu marine Nike avec bandes blanches sur les manches, col rond, coupe regular"
+- "T-shirt gris chiné Nike avec grand logo noir sur la poitrine, oversize, manches raglan"
+"""
+
+    try:
+        request_body = {
+            "anthropic_version": "bedrock-2023-05-31",
+            "max_tokens": 2000,
+            "messages": [
+                {
+                    "role": "user",
+                    "content": [
+                        {
+                            "type": "image",
+                            "source": {
+                                "type": "base64",
+                                "media_type": "image/png",
+                                "data": image_base64
+                            }
+                        },
+                        {
+                            "type": "text",
+                            "text": prompt
+                        }
+                    ]
+                }
+            ]
+        }
+        
+        response = bedrock_runtime.invoke_model(
+            modelId=model_id,
+            body=json.dumps(request_body),
+            contentType="application/json",
+            accept="application/json"
+        )
+        
+        response_body = json.loads(response['body'].read())
+        content = response_body.get('content', [{}])[0].get('text', '{}')
+        
+        result = json.loads(content)
+        variations = result.get('variations', [])
+        
+        # Ensure we have exactly 10 variations
+        if len(variations) < 10:
+            # Pad with generic variations if needed
+            base_colors = ['rouge', 'bleu', 'vert', 'jaune', 'orange', 'violet', 'rose', 'blanc', 'gris', 'beige']
+            while len(variations) < 10:
+                color = base_colors[len(variations) % len(base_colors)]
+                variations.append(f"{original_description} en {color}")
+        
+        print(f"Generated {len(variations)} outfit variations")
+        return variations[:10]
+        
+    except Exception as e:
+        print(f"Error generating outfit variations: {e}")
+        # Return basic color variations on error
+        colors = ['rouge', 'bleu royal', 'vert émeraude', 'jaune soleil', 'orange vif', 
+                  'violet', 'rose fuchsia', 'blanc pur', 'gris anthracite', 'beige sable']
+        return [f"{original_description} en {color}" for color in colors]
 
 
