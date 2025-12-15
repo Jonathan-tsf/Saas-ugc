@@ -6,6 +6,7 @@ import uuid
 import os
 import urllib.request
 import urllib.error
+import base64
 from datetime import datetime
 from decimal import Decimal
 
@@ -57,68 +58,108 @@ VIDEO_PROMPT_TEMPLATES = [
 ]
 
 # Default negative prompt for all videos
-DEFAULT_NEGATIVE_PROMPT = "morphing, face drift, changing facial features, extra limbs, bad hands, distorted fingers, flicker, jitter, wobble, blur, low quality, text, watermark, logo, unnatural movement, robotic motion, frozen expression"
+DEFAULT_NEGATIVE_PROMPT = "morphing, face drift, changing facial features, extra limbs, bad hands, distorted fingers, flicker, jitter, wobble, blur, low quality, text, watermark, logo, unnatural movement, robotic motion, frozen expression, teeth showing, open mouth smile, camera movement, camera shake, zooming"
 
 
-def generate_video_prompt_with_bedrock(photo_description: str, scene_context: str = "") -> dict:
+def download_image_as_base64(image_url: str) -> str:
+    """Download image from URL and return as base64 string."""
+    try:
+        req = urllib.request.Request(image_url, headers={'User-Agent': 'Mozilla/5.0'})
+        with urllib.request.urlopen(req, timeout=30) as img_response:
+            image_data = img_response.read()
+            return base64.b64encode(image_data).decode('utf-8')
+    except Exception as e:
+        print(f"Error downloading image: {e}")
+        raise
+
+
+def generate_video_prompt_with_bedrock(image_url: str, scene_context: str = "") -> dict:
     """
-    Use AWS Bedrock Claude to generate an optimized video prompt based on the photo description.
+    Use AWS Bedrock Claude Vision to analyze the image and generate an optimized video prompt.
     
     Args:
-        photo_description: Description of the showcase photo
+        image_url: URL of the showcase photo to analyze
         scene_context: Additional context about the scene/outfit
     
     Returns:
         dict with 'prompt', 'negative_prompt' keys
     """
-    model_id = "anthropic.claude-3-haiku-20240307-v1:0"
+    model_id = "global.anthropic.claude-sonnet-4-5-20250929-v1:0"
     
     system_prompt = """You are an expert at creating prompts for AI video generation from images.
 Your goal is to create prompts that produce ultra-realistic human videos with minimal artifacts.
 
-KEY RULES:
-1. Focus 70% of the prompt on MOTION DIRECTIVES (what moves, how, speed)
-2. Describe ONE simple action only - complex actions cause glitches
-3. Keep the subject's identity, clothing, and proportions IDENTICAL to source
-4. Use simple camera movements: slow push-in, slow pan, locked shot, or slight handheld shake
-5. Emphasize micro-movements: breathing, blinking, subtle head tilts
-6. Include lighting and atmosphere from the scene
+CRITICAL RULES - MUST FOLLOW:
+1. CAMERA MUST BE COMPLETELY STATIC - NO camera movement AT ALL (no pan, no zoom, no push-in, no tracking)
+2. NO SMILING WITH TEETH - only subtle closed-mouth expressions allowed
+3. Movement speed must be REALISTIC - not slow motion, natural human speed
+4. Focus 70% of the prompt on MOTION DIRECTIVES (what moves, how, speed)
+5. Describe ONE simple action only - complex actions cause glitches
+6. Keep the subject's identity, clothing, and proportions IDENTICAL to source
+7. Emphasize micro-movements: breathing, blinking, subtle head tilts
+8. Describe EXACTLY what is in the image - clothes, pose, objects, setting
 
 PROMPT STRUCTURE:
-Scene: [where + time of day + light]
-Subject: the person in the reference image, keep same identity, same clothing, same proportions
-Action (ONE): [single simple action]
-Micro-motion: subtle breathing, natural blink, tiny head movement, hair/clothes react to motion
-Camera: [ONE move max], stable framing
+Static camera shot. [Describe exactly what you see: person, clothing, pose, objects held, setting]
+Action (ONE): [single simple realistic-speed action appropriate to what they're holding/doing]
+Micro-motion: subtle breathing, natural blink, tiny head movement, hair/clothes react naturally
+Expression: neutral or subtle closed-mouth confidence, NO teeth showing
 Look: cinematic, realistic skin texture, natural motion blur, shallow depth of field
 
 Generate for TikTok/Instagram style B-roll content - professional but authentic."""
 
-    user_prompt = f"""Based on this photo description, create a video prompt:
+    try:
+        # Download and encode image
+        print(f"Downloading image for analysis: {image_url[:80]}...")
+        image_base64 = download_image_as_base64(image_url)
+        
+        # Determine media type from URL
+        media_type = "image/jpeg"
+        if ".png" in image_url.lower():
+            media_type = "image/png"
+        elif ".webp" in image_url.lower():
+            media_type = "image/webp"
+        
+        user_prompt = f"""Look at this image carefully and create a video prompt.
 
-Photo description: {photo_description}
-{f"Scene context: {scene_context}" if scene_context else ""}
+{f"Additional context: {scene_context}" if scene_context else ""}
 
-Create a 10-second video prompt that:
-- Shows a natural, confident movement/action appropriate for the outfit/setting
-- Keeps the person identical to the source image
-- Uses professional but authentic social media aesthetic
+IMPORTANT:
+1. Describe EXACTLY what you see in the image (person, clothing, objects, pose, setting)
+2. If they are holding something, the action should relate to that object
+3. Camera MUST stay completely still - NO movement
+4. NO smiling with teeth - only closed-mouth expressions
+5. Movement should be realistic speed, not slow motion
+
+Create a 10-second video prompt based on what you actually see.
 
 Respond ONLY with valid JSON in this exact format:
 {{
-    "prompt": "your detailed video prompt here",
-    "negative_prompt": "morphing, face drift, changing facial features, extra limbs, bad hands, distorted fingers, flicker, jitter, wobble, blur, low quality, text, watermark, logo"
+    "prompt": "Static camera shot. [your detailed video prompt describing what you see and one simple action]",
+    "negative_prompt": "camera movement, zooming, panning, teeth showing, open mouth smile, morphing, face drift, changing facial features, extra limbs, bad hands, slow motion"
 }}"""
 
-    try:
         request_body = {
             "anthropic_version": "bedrock-2023-05-31",
-            "max_tokens": 500,
+            "max_tokens": 600,
             "system": system_prompt,
             "messages": [
                 {
                     "role": "user",
-                    "content": user_prompt
+                    "content": [
+                        {
+                            "type": "image",
+                            "source": {
+                                "type": "base64",
+                                "media_type": media_type,
+                                "data": image_base64
+                            }
+                        },
+                        {
+                            "type": "text",
+                            "text": user_prompt
+                        }
+                    ]
                 }
             ]
         }
@@ -150,7 +191,7 @@ Respond ONLY with valid JSON in this exact format:
         print(f"Error generating video prompt with Bedrock: {e}")
         # Return a default prompt on error
         return {
-            'prompt': f"Medium shot. The person in the reference image stands confidently, takes a breath, subtle smile appears. Natural breathing, small head movement. Camera: slow push-in, stable. Soft natural lighting, cinematic realism. {photo_description}",
+            'prompt': f"Static camera shot. The person in the reference image stands confidently, takes a breath, subtle closed-mouth expression. Natural breathing, small head movement. Camera completely still. Soft natural lighting, cinematic realism.",
             'negative_prompt': DEFAULT_NEGATIVE_PROMPT
         }
 
@@ -381,18 +422,18 @@ def generate_showcase_videos_async(job_id: str):
         
         print(f"[{job_id}] Generating {total_videos} videos for {len(selected_photos)} photos")
         
-        # PHASE 1: Generate prompts with Bedrock
+        # PHASE 1: Generate prompts with Bedrock (analyzing the actual image)
         video_tasks = []
         
         for photo in selected_photos:
             image_url = photo.get('image_url')
-            description = photo.get('description', '')
             scene_type = photo.get('scene_type', '')
             
             # Generate 2 different video prompts for each photo
             for video_num in range(2):
                 try:
-                    prompt_result = generate_video_prompt_with_bedrock(description, scene_type)
+                    # Use image URL directly - Bedrock will analyze the image
+                    prompt_result = generate_video_prompt_with_bedrock(image_url, scene_type)
                     
                     video_tasks.append({
                         'photo_index': photo.get('index'),

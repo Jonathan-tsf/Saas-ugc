@@ -119,7 +119,7 @@ def analyze_outfit_image(image_base64: str, valid_types: list) -> dict:
     import base64
     
     # Claude Haiku model ID
-    model_id = "anthropic.claude-3-haiku-20240307-v1:0"
+    model_id = "global.anthropic.claude-sonnet-4-5-20250929-v1:0"
     
     types_list = ", ".join(valid_types)
     
