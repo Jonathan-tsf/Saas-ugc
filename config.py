@@ -362,3 +362,127 @@ Exemples de variations DIVERSIFIÉES pour un "T-shirt noir Nike ajusté":
         return [f"{original_description} en {colors[i]}" for i in range(num_variations)]
 
 
+def generate_gender_conversion_description(image_base64: str, original_description: str, original_gender: str, target_gender: str) -> dict:
+    """
+    Use AWS Bedrock Claude Sonnet to generate a gender-converted version of an outfit.
+    Converts feminine clothing to masculine equivalent and vice versa.
+    
+    Args:
+        image_base64: Base64 encoded image of the original outfit
+        original_description: The original outfit description
+        original_gender: 'male' or 'female'
+        target_gender: 'male' or 'female'
+    
+    Returns:
+        dict with 'description' (new description) and 'type' (outfit type for the new gender)
+    """
+    model_id = "us.anthropic.claude-sonnet-4-5-20250929-v1:0"
+    
+    # Define conversion mappings for context
+    if original_gender == 'female' and target_gender == 'male':
+        conversion_examples = """
+CONVERSIONS FÉMININES → MASCULINES:
+- Brassière de sport → T-shirt ou débardeur de sport
+- Legging → Jogging ou short de sport
+- Crop top → T-shirt de sport
+- Short court/cycliste → Short de sport mi-cuisse
+- Top sans manches → Débardeur de sport
+- Ensemble 2 pièces femme → Ensemble jogging homme ou t-shirt + short"""
+    else:
+        conversion_examples = """
+CONVERSIONS MASCULINES → FÉMININES:  
+- T-shirt de sport → Brassière ou crop top de sport
+- Jogging → Legging de sport
+- Short de sport → Short cycliste ou legging court
+- Débardeur → Top de sport ou brassière
+- Ensemble jogging homme → Ensemble legging + brassière"""
+    
+    prompt = f"""Regarde cette image de vêtement de sport. C'est un vêtement {'féminin' if original_gender == 'female' else 'masculin'}.
+Description originale: "{original_description}"
+
+Tu dois créer la VERSION {'MASCULINE' if target_gender == 'male' else 'FÉMININE'} ÉQUIVALENTE de ce vêtement.
+
+{conversion_examples}
+
+RÈGLES:
+1. CONVERTIR le TYPE de vêtement vers son équivalent pour l'autre genre
+2. GARDER le même style sportif/fitness
+3. GARDER des couleurs similaires ou complémentaires  
+4. ADAPTER la coupe au nouveau genre (ex: plus ample pour homme, plus ajusté pour femme)
+5. La description doit faire 80-120 caractères en français
+
+Réponds UNIQUEMENT avec du JSON valide:
+{{"description": "Description détaillée du vêtement converti pour {'homme' if target_gender == 'male' else 'femme'}...", "type": "type_de_vetement"}}
+
+Exemples de bonnes conversions:
+- "Brassière rose Nike" → {{"description": "T-shirt de sport rose Nike coupe regular, col rond, tissu Dri-FIT respirant", "type": "t-shirt"}}
+- "Legging noir compression" → {{"description": "Jogging noir de sport coupe slim, tissu stretch, bande élastique à la taille", "type": "jogging"}}
+- "T-shirt bleu Adidas homme" → {{"description": "Brassière de sport bleue Adidas, maintien moyen, bretelles croisées dans le dos", "type": "brassiere"}}
+"""
+
+    try:
+        request_body = {
+            "anthropic_version": "bedrock-2023-05-31",
+            "max_tokens": 500,
+            "messages": [
+                {
+                    "role": "user",
+                    "content": [
+                        {
+                            "type": "image",
+                            "source": {
+                                "type": "base64",
+                                "media_type": "image/jpeg",
+                                "data": image_base64
+                            }
+                        },
+                        {
+                            "type": "text",
+                            "text": prompt
+                        }
+                    ]
+                }
+            ]
+        }
+        
+        response = bedrock_runtime.invoke_model(
+            modelId=model_id,
+            body=json.dumps(request_body),
+            contentType="application/json",
+            accept="application/json"
+        )
+        
+        response_body = json.loads(response['body'].read())
+        content = response_body.get('content', [{}])[0].get('text', '{}')
+        
+        # Strip markdown code blocks if present
+        json_text = content.strip()
+        if json_text.startswith('```'):
+            lines = json_text.split('\n')
+            start_idx = 1 if lines[0].startswith('```') else 0
+            end_idx = len(lines)
+            for i in range(len(lines) - 1, -1, -1):
+                if lines[i].strip() == '```':
+                    end_idx = i
+                    break
+            json_text = '\n'.join(lines[start_idx:end_idx])
+        
+        result = json.loads(json_text)
+        print(f"Gender conversion result: {result}")
+        return result
+        
+    except Exception as e:
+        print(f"Error generating gender conversion: {e}")
+        # Fallback: just modify the description
+        if target_gender == 'male':
+            return {
+                'description': f"Version masculine de: {original_description}",
+                'type': 't-shirt'
+            }
+        else:
+            return {
+                'description': f"Version féminine de: {original_description}",
+                'type': 'brassiere'
+            }
+
+

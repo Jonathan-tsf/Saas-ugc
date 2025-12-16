@@ -100,6 +100,14 @@ from handlers.outfit_variations import (
     apply_outfit_variation,
 )
 
+# Import gender conversion handlers
+from handlers.gender_conversion import (
+    list_outfits_by_gender,
+    start_gender_conversion,
+    generate_conversion_image,
+    get_conversion_status,
+)
+
 # Import authentication handlers
 from handlers.auth import (
     sign_up,
@@ -316,6 +324,35 @@ def lambda_handler(event, context):
     
     if http_method == 'DELETE' and path.startswith('/api/admin/ambassadors/'):
         return delete_ambassador(event)
+    
+    # Gender conversion routes
+    if path == '/api/admin/outfits/convert-gender':
+        if http_method == 'POST':
+            return start_gender_conversion(event)
+    
+    if path == '/api/admin/outfits/convert-gender/generate':
+        if http_method == 'POST':
+            return generate_conversion_image(event)
+    
+    if path.startswith('/api/admin/outfits/convert-gender/status/'):
+        if http_method == 'GET':
+            # Extract job_id from path
+            parts = path.split('/')
+            if len(parts) >= 7:
+                job_id = parts[6]
+                event['pathParameters'] = event.get('pathParameters', {}) or {}
+                event['pathParameters']['job_id'] = job_id
+                return get_conversion_status(event)
+    
+    if path.startswith('/api/admin/outfits/gender/'):
+        if http_method == 'GET':
+            # Extract gender from path
+            parts = path.split('/')
+            if len(parts) >= 6:
+                gender = parts[5]
+                event['pathParameters'] = event.get('pathParameters', {}) or {}
+                event['pathParameters']['gender'] = gender
+                return list_outfits_by_gender(event)
     
     # Outfit parameterized routes
     # Handle outfit variations routes first (more specific path)
