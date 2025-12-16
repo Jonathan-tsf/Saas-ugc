@@ -28,7 +28,7 @@ GEMINI_API_URL = "https://generativelanguage.googleapis.com/v1beta/models/gemini
 NUM_VARIATIONS = 6
 
 
-def generate_single_variation_image(description: str, index: int, job_id: str, outfit_id: str) -> dict:
+def generate_single_variation_image(description: str, index: int, job_id: str, outfit_id: str, gender: str = 'unisex') -> dict:
     """
     Generate a single outfit variation image using Nano Banana Pro (Gemini 3 Pro Image).
     Saves the result directly to S3 and updates the job in DynamoDB.
@@ -38,14 +38,24 @@ def generate_single_variation_image(description: str, index: int, job_id: str, o
         index: The variation index (0-5)
         job_id: The job ID for tracking
         outfit_id: The outfit ID for S3 path
+        gender: The gender for the clothing item (male, female, unisex)
     
     Returns:
         dict with 'index', 'description', 'image_url' or 'error'
     """
     try:
-        prompt = f"""Generate a professional product photo of this clothing item on a pure white background:
+        # Map gender to clothing category description
+        gender_context = {
+            'male': "men's clothing / masculine style",
+            'female': "women's clothing / feminine style",
+            'unisex': "unisex clothing"
+        }.get(gender, 'unisex clothing')
+        
+        prompt = f"""Generate a professional product photo of this {gender_context} item on a pure white background:
 
 {description}
+
+IMPORTANT: This is {gender_context}. The garment MUST be clearly designed for {gender if gender != 'unisex' else 'any gender'} - respect the cut, fit, and style appropriate for this gender.
 
 Requirements:
 - Product photography style, e-commerce quality
@@ -55,6 +65,7 @@ Requirements:
 - High quality, well-lit, professional
 - Show the garment's details, texture, and colors clearly
 - Square format, centered composition
+- MUST maintain {gender_context} silhouette and proportions
 """
         
         headers = {
@@ -174,6 +185,7 @@ def start_outfit_variations(event):
         
         image_url = outfit.get('image_url')
         description = outfit.get('description', 'Tenue sport')
+        gender = outfit.get('gender', 'unisex')
         
         if not image_url:
             return response(400, {'error': 'Outfit has no image'})
@@ -215,6 +227,7 @@ def start_outfit_variations(event):
             'job_type': 'outfit_variations',
             'outfit_id': outfit_id,
             'original_description': description,
+            'gender': gender,  # Store gender for image generation
             'status': 'ready',  # Ready to generate images
             'variations': variations,
             'completed_count': 0,
@@ -313,12 +326,14 @@ def generate_variation_image(event):
         )
         
         # Generate the image
-        print(f"Generating variation {variation_index} for job {job_id}")
+        gender = job.get('gender', 'unisex')
+        print(f"Generating variation {variation_index} for job {job_id} (gender: {gender})")
         result = generate_single_variation_image(
             variation['description'],
             variation_index,
             job_id,
-            outfit_id
+            outfit_id,
+            gender
         )
         
         # Update the variation with result
