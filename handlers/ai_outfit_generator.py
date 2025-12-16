@@ -34,6 +34,7 @@ GEMINI_API_URL = "https://generativelanguage.googleapis.com/v1beta/models/gemini
 def generate_new_outfit_descriptions(existing_descriptions: list, gender: str, num_to_generate: int) -> list:
     """
     Use Claude 4.5 to generate new unique outfit descriptions based on existing ones.
+    Automatically detects the style/category from existing outfits.
     
     Args:
         existing_descriptions: List of existing outfit descriptions
@@ -49,45 +50,41 @@ def generate_new_outfit_descriptions(existing_descriptions: list, gender: str, n
     
     existing_list = "\n".join([f"- {desc}" for desc in existing_descriptions[:50]])  # Limit to 50 for context
     
-    if gender == 'female':
-        outfit_examples = """- "Ensemble fitness corail: brassière à bretelles fines avec logo doré + legging taille haute assorti, coutures apparentes"
-- "Tenue sport noir et blanc: crop-top côtelé blanc cassé + legging noir push-up avec bandes blanches latérales"
-- "Set yoga lavande pastel: brassière croisée dos nageur + legging 7/8 sans coutures, tissu ultra-doux"
-- "Ensemble running néon: brassière maintien fort jaune fluo + short cycliste noir avec poche latérale"
-- "Tenue pilates émeraude: débardeur fluide dos ouvert + legging bootcut taille haute, ceinture élastique large"""
-    else:
-        outfit_examples = """- "Ensemble training gris anthracite: t-shirt compression manches courtes + jogging slim chevilles resserrées, poches zippées"
-- "Tenue sport noir et rouge: débardeur technique mesh + short basketball avec bandes latérales rouges"
-- "Set fitness bleu marine: t-shirt oversize col V + short running léger avec slip intégré"
-- "Ensemble musculation kaki: tank top large dos nageur + jogging cargo poches multiples"
-- "Tenue cardio noir total: t-shirt dry-fit manches longues + short cycliste compression"""
-    
-    prompt = f"""Tu es un expert en mode sportswear/fitness. Voici les tenues {gender_context} qui existent déjà dans notre catalogue:
+    prompt = f"""Tu es un expert en mode. Analyse d'abord les tenues existantes ci-dessous pour comprendre le STYLE et la CATÉGORIE de vêtements (sport, casual, élégant, streetwear, etc.):
 
+TENUES EXISTANTES POUR {gender_context.upper()}:
 {existing_list}
 
-Génère exactement {num_to_generate} NOUVEAUX ENSEMBLES COMPLETS de sport/fitness pour {gender_context} qui:
+ÉTAPE 1: Analyse le style dominant des tenues ci-dessus (sport/fitness, casual, streetwear, élégant, etc.)
+
+ÉTAPE 2: Génère exactement {num_to_generate} NOUVEAUX ENSEMBLES COMPLETS dans le MÊME STYLE/CATÉGORIE que les tenues existantes.
+
+RÈGLES:
 1. Chaque ensemble DOIT inclure un HAUT et un BAS coordonnés
-2. N'existent PAS déjà dans la liste ci-dessus (évite les doublons)
-3. Sont variés en termes de couleurs, motifs, styles et coupes
-4. Sont réalistes et vendables
-5. Correspondent au style sportswear/fitness moderne
+2. N'existe PAS déjà dans la liste ci-dessus (évite les doublons)
+3. MÊME STYLE que les tenues existantes (si ce sont des tenues casual, génère du casual; si c'est du sport, génère du sport, etc.)
+4. Variés en termes de couleurs, motifs et coupes
+5. Réalistes et vendables
 
 IMPORTANT: Chaque description doit décrire un ENSEMBLE COMPLET avec:
-- Un haut ({"brassière, crop-top, débardeur" if gender == 'female' else "t-shirt, débardeur, tank top"})
-- Un bas (legging, short, jogging)
+- Un haut adapté au style détecté
+- Un bas adapté au style détecté  
 - Les deux pièces doivent être coordonnées en couleur/style
 
 Réponds UNIQUEMENT avec du JSON valide:
 {{
+    "detected_style": "le style détecté (sport, casual, streetwear, etc.)",
     "outfits": [
         {{"description": "Ensemble complet: [haut] + [bas] avec détails...", "type": "ensemble"}},
         ...
     ]
 }}
 
-Exemples de bonnes descriptions d'ENSEMBLES COMPLETS:
-{outfit_examples}
+Exemples de formats de description selon le style:
+- Sport: "Ensemble fitness corail: brassière bretelles fines + legging taille haute assorti"
+- Casual: "Tenue décontractée beige: t-shirt oversize en lin + pantalon large fluide"
+- Streetwear: "Look urbain noir: hoodie crop oversize + jogging baggy taille élastique"
+- Élégant: "Ensemble chic bordeaux: blouse satinée + pantalon cigarette taille haute"
 """
 
     try:
@@ -347,8 +344,8 @@ def generate_ai_outfit_image(event):
         description = generation.get('description', '')
         outfit_type = generation.get('type', 'ensemble')
         
-        # Build prompt with reference images
-        gender_context = "women's fitness/sport" if gender == 'female' else "men's fitness/sport"
+        # Build prompt with reference images - style is dynamic based on description
+        gender_context = "women's" if gender == 'female' else "men's"
         
         prompt = f"""Based on the style of the reference images provided, create a COMPLETE {gender_context} OUTFIT SET:
 
@@ -356,11 +353,11 @@ def generate_ai_outfit_image(event):
 
 CRITICAL INSTRUCTIONS:
 1. Generate a COMPLETE OUTFIT with BOTH a TOP and BOTTOM garment together in ONE image
-2. The top and bottom must be coordinated and match the description
+2. The top and bottom must be coordinated and match the description EXACTLY
 3. Match the EXACT SAME photography style as the reference images (flat lay style, pure white background)
 4. Layout: Show the complete outfit as a flat lay - top garment above, bottom garment below, arranged as if worn together
 5. Keep the same professional e-commerce quality
-6. This is {gender_context} clothing - use appropriate fit and style for the gender
+6. Match the CLOTHING STYLE from the description (could be sport, casual, streetwear, elegant, etc.)
 
 Requirements:
 - Pure white background (#FFFFFF)
@@ -370,6 +367,7 @@ Requirements:
 - Square format (1:1), centered composition
 - Top garment positioned above, bottom garment below
 - Both pieces should look coordinated as a matching set
+- Follow the EXACT style described (sport, casual, elegant, etc.)
 """
         
         headers = {"Content-Type": "application/json"}
