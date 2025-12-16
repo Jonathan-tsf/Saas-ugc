@@ -263,13 +263,21 @@ def generate_outfit_variations_descriptions(image_base64: str, original_descript
     
     prompt = f"""Regarde cette image de vêtement. La description originale est: "{original_description}"
 
-Génère exactement {num_variations} variations créatives de ce vêtement. Chaque variation doit:
-- Garder le même TYPE de vêtement (si c'est un t-shirt, reste un t-shirt)
-- Changer les couleurs, motifs, ou style de manière créative
-- Être réaliste et vendable comme vêtement de sport/fitness
-- Être décrite en français avec 80-120 caractères
+Génère exactement {num_variations} variations CRÉATIVES et DIVERSIFIÉES de ce vêtement.
 
-Pour chaque variation, fournis une description COMPLÈTE qui pourrait être utilisée pour générer l'image du vêtement seul (sans mannequin, fond blanc, photo produit).
+RÈGLES IMPORTANTES:
+1. GARDER LE MÊME STYLE: Si c'est un vêtement de sport/fitness, reste sport/fitness. Si c'est casual, reste casual.
+2. GARDER LE MÊME TYPE: Un t-shirt reste un t-shirt, un legging reste un legging, etc.
+3. VARIER BEAUCOUP PLUS QUE LA COULEUR - change aussi:
+   - Les MOTIFS: unis, rayures, tie-dye, dégradé, camouflage, géométrique, floral
+   - Les IMPRIMÉS: logos différents, graphiques, texte, emblèmes sportifs
+   - La COUPE: ajustée, regular, oversize, crop, asymétrique
+   - Les DÉTAILS: col rond/V/montant, manches courtes/longues/raglan, fermetures, poches
+   - Les TEXTURES: mesh respirant, compression, jersey, coton, technique
+   - Les FINITIONS: coutures contrastées, bandes latérales, empiècements, surpiqûres
+
+4. Être réaliste et vendable comme vêtement de sport/fitness
+5. Chaque description: 80-120 caractères, en français
 
 Réponds UNIQUEMENT avec du JSON valide:
 {{"variations": [
@@ -278,10 +286,12 @@ Réponds UNIQUEMENT avec du JSON valide:
     ... ({num_variations} variations au total)
 ]}}
 
-Exemples de bonnes variations pour un "T-shirt noir Nike":
-- "T-shirt blanc Nike avec logo swoosh rouge, coupe ajustée, col en V, tissu respirant"
-- "T-shirt bleu marine Nike avec bandes blanches sur les manches, col rond, coupe regular"
-- "T-shirt gris chiné Nike avec grand logo noir sur la poitrine, oversize, manches raglan"
+Exemples de variations DIVERSIFIÉES pour un "T-shirt noir Nike ajusté":
+- "T-shirt blanc Nike oversize avec grand logo graphique multicolore sur la poitrine, col large"
+- "T-shirt bleu tie-dye Nike coupe crop avec mesh respirant sur le dos, manches raglan"
+- "T-shirt gris chiné Nike compression avec rayures réfléchissantes latérales, col montant"
+- "T-shirt bordeaux Nike regular avec empiècements mesh sous les bras, logo brodé discret"
+- "T-shirt vert militaire Nike oversize camouflage subtil, poche poitrine, finitions contrastées"
 """
 
     try:
