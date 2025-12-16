@@ -55,17 +55,22 @@ def generate_single_variation_image(description: str, index: int, job_id: str, o
 
 {description}
 
-IMPORTANT: This is {gender_context}. The garment MUST be clearly designed for {gender if gender != 'unisex' else 'any gender'} - respect the cut, fit, and style appropriate for this gender.
+CRITICAL INSTRUCTIONS:
+1. This is {gender_context}. The garment MUST be clearly designed for {gender if gender != 'unisex' else 'any gender'}.
+2. MAINTAIN EXACT PROPORTIONS: The clothing item must have realistic proportions - standard sizing, not oversized or undersized.
+3. CONSISTENT FORMAT: Product photography style, flat lay or invisible mannequin display.
 
 Requirements:
-- Product photography style, e-commerce quality
 - Pure white background (#FFFFFF)
-- The clothing item should be displayed flat lay or on invisible mannequin
-- NO human model visible
-- High quality, well-lit, professional
+- E-commerce quality product photography
+- Flat lay OR invisible mannequin display - NO human model visible
+- High quality, professional studio lighting
 - Show the garment's details, texture, and colors clearly
-- Square format, centered composition
-- MUST maintain {gender_context} silhouette and proportions
+- Square format (1:1), perfectly centered composition
+- REALISTIC garment proportions (standard adult sizing)
+- Garment should fill 70-80% of the frame vertically
+- Keep consistent scale across all variations
+- {gender_context.upper()} silhouette and fit
 """
         
         headers = {
