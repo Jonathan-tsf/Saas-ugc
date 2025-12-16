@@ -210,7 +210,8 @@ def start_outfit_variations(event):
             })
         
         job_item = {
-            'job_id': job_id,
+            'id': job_id,  # Primary key for nano_banana_jobs table
+            'job_id': job_id,  # Also keep job_id for convenience
             'job_type': 'outfit_variations',
             'outfit_id': outfit_id,
             'original_description': description,
@@ -276,7 +277,7 @@ def generate_variation_image(event):
             return response(400, {'error': 'variation_index is required'})
         
         # Get the job
-        result = jobs_table.get_item(Key={'job_id': job_id})
+        result = jobs_table.get_item(Key={'id': job_id})
         job = result.get('Item')
         
         if not job:
@@ -303,7 +304,7 @@ def generate_variation_image(event):
         # Mark as generating
         variation['status'] = 'generating'
         jobs_table.update_item(
-            Key={'job_id': job_id},
+            Key={'id': job_id},
             UpdateExpression='SET variations = :vars, updated_at = :updated',
             ExpressionAttributeValues={
                 ':vars': variations,
@@ -340,7 +341,7 @@ def generate_variation_image(event):
         
         # Update job
         jobs_table.update_item(
-            Key={'job_id': job_id},
+            Key={'id': job_id},
             UpdateExpression='SET variations = :vars, #status = :status, completed_count = :completed, updated_at = :updated',
             ExpressionAttributeNames={'#status': 'status'},
             ExpressionAttributeValues={
@@ -387,7 +388,7 @@ def get_variations_job_status(event):
             return response(400, {'error': 'job_id query parameter is required'})
         
         # Get the job
-        result = jobs_table.get_item(Key={'job_id': job_id})
+        result = jobs_table.get_item(Key={'id': job_id})
         job = result.get('Item')
         
         if not job:
