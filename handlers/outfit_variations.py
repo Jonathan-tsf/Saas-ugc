@@ -24,8 +24,9 @@ jobs_table = dynamodb.Table('nano_banana_jobs')
 # Gemini 3 Pro Image (Nano Banana Pro) endpoint
 GEMINI_API_URL = "https://generativelanguage.googleapis.com/v1beta/models/gemini-3-pro-image-preview:generateContent"
 
-# Number of variations to generate (reduced from 10 to fit timing constraints)
-NUM_VARIATIONS = 6
+# Default and max variations
+DEFAULT_VARIATIONS = 6
+MAX_VARIATIONS = 30
 
 
 def generate_single_variation_image(description: str, index: int, job_id: str, outfit_id: str, gender: str = 'unisex', original_image_base64: str = None) -> dict:
@@ -197,6 +198,14 @@ def start_outfit_variations(event):
         if not outfit_id:
             return response(400, {'error': 'Outfit ID is required'})
         
+        # Get number of variations from request body (default 6, max 30)
+        try:
+            body = json.loads(event.get('body', '{}') or '{}')
+        except:
+            body = {}
+        num_variations = body.get('num_variations', DEFAULT_VARIATIONS)
+        num_variations = max(1, min(MAX_VARIATIONS, int(num_variations)))
+        
         # Get the outfit from DynamoDB
         result = outfits_table.get_item(Key={'id': outfit_id})
         outfit = result.get('Item')
@@ -220,8 +229,8 @@ def start_outfit_variations(event):
         image_base64 = base64.b64encode(image_bytes).decode('utf-8')
         
         # Generate variation descriptions using Bedrock Claude (this is fast, ~8s)
-        print("Generating variation descriptions with Bedrock Claude...")
-        variation_descriptions = generate_outfit_variations_descriptions(image_base64, description)
+        print(f"Generating {num_variations} variation descriptions with Bedrock Claude...")
+        variation_descriptions = generate_outfit_variations_descriptions(image_base64, description, num_variations)
         
         print(f"Generated {len(variation_descriptions)} variation descriptions")
         for i, desc in enumerate(variation_descriptions):
@@ -233,7 +242,7 @@ def start_outfit_variations(event):
         
         # Prepare variations list with pending status
         variations = []
-        for i, desc in enumerate(variation_descriptions[:NUM_VARIATIONS]):
+        for i, desc in enumerate(variation_descriptions[:num_variations]):
             variations.append({
                 'index': i,
                 'description': desc,
