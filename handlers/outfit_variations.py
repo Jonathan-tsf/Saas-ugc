@@ -28,9 +28,10 @@ GEMINI_API_URL = "https://generativelanguage.googleapis.com/v1beta/models/gemini
 NUM_VARIATIONS = 6
 
 
-def generate_single_variation_image(description: str, index: int, job_id: str, outfit_id: str, gender: str = 'unisex') -> dict:
+def generate_single_variation_image(description: str, index: int, job_id: str, outfit_id: str, gender: str = 'unisex', original_image_base64: str = None) -> dict:
     """
     Generate a single outfit variation image using Nano Banana Pro (Gemini 3 Pro Image).
+    Uses the original image as reference to create a variation.
     Saves the result directly to S3 and updates the job in DynamoDB.
     
     Args:
@@ -39,6 +40,7 @@ def generate_single_variation_image(description: str, index: int, job_id: str, o
         job_id: The job ID for tracking
         outfit_id: The outfit ID for S3 path
         gender: The gender for the clothing item (male, female, unisex)
+        original_image_base64: The original outfit image in base64 format
     
     Returns:
         dict with 'index', 'description', 'image_url' or 'error'
@@ -51,37 +53,51 @@ def generate_single_variation_image(description: str, index: int, job_id: str, o
             'unisex': "unisex clothing"
         }.get(gender, 'unisex clothing')
         
-        prompt = f"""Generate a professional product photo of this {gender_context} item on a pure white background:
+        prompt = f"""Based on the provided clothing item image, create a VARIATION with these changes:
 
 {description}
 
 CRITICAL INSTRUCTIONS:
-1. This is {gender_context}. The garment MUST be clearly designed for {gender if gender != 'unisex' else 'any gender'}.
-2. MAINTAIN EXACT PROPORTIONS: The clothing item must have realistic proportions - standard sizing, not oversized or undersized.
-3. CONSISTENT FORMAT: Product photography style, flat lay or invisible mannequin display.
+1. Use the PROVIDED IMAGE as the base reference - keep the same garment TYPE and SILHOUETTE
+2. Apply ONLY the modifications described above (color, pattern, details changes)
+3. MAINTAIN the exact same proportions, scale, and positioning as the original
+4. This is {gender_context} - keep the same gender-appropriate fit and style
+5. Keep the same photography style: flat lay or invisible mannequin on pure white background
 
 Requirements:
 - Pure white background (#FFFFFF)
+- SAME garment proportions and scale as the original image
+- SAME positioning and angle as the original
 - E-commerce quality product photography
-- Flat lay OR invisible mannequin display - NO human model visible
-- High quality, professional studio lighting
-- Show the garment's details, texture, and colors clearly
-- Square format (1:1), perfectly centered composition
-- REALISTIC garment proportions (standard adult sizing)
-- Garment should fill 70-80% of the frame vertically
-- Keep consistent scale across all variations
-- {gender_context.upper()} silhouette and fit
+- NO human model visible
+- Square format (1:1), centered composition
+- Apply ONLY the described variation, keep everything else identical
 """
         
         headers = {
             "Content-Type": "application/json"
         }
         
+        # Build the parts - include original image if provided
+        parts = []
+        
+        # Add the original image first (for reference)
+        if original_image_base64:
+            parts.append({
+                "inlineData": {
+                    "mimeType": "image/jpeg",
+                    "data": original_image_base64
+                }
+            })
+        
+        # Add the text prompt
+        parts.append({
+            "text": prompt
+        })
+        
         payload = {
             "contents": [{
-                "parts": [{
-                    "text": prompt
-                }]
+                "parts": parts
             }],
             "generationConfig": {
                 "responseModalities": ["TEXT", "IMAGE"],
@@ -330,15 +346,32 @@ def generate_variation_image(event):
             }
         )
         
-        # Generate the image
+        # Get the original outfit image from S3
+        outfit_result = outfits_table.get_item(Key={'id': outfit_id})
+        outfit = outfit_result.get('Item')
+        
+        original_image_base64 = None
+        if outfit and outfit.get('image_url'):
+            try:
+                image_url = outfit.get('image_url')
+                s3_key = image_url.replace(f"https://{S3_BUCKET}.s3.amazonaws.com/", "")
+                s3_response = s3.get_object(Bucket=S3_BUCKET, Key=s3_key)
+                image_bytes = s3_response['Body'].read()
+                original_image_base64 = base64.b64encode(image_bytes).decode('utf-8')
+                print(f"Loaded original image from S3: {s3_key} ({len(image_bytes)} bytes)")
+            except Exception as e:
+                print(f"Warning: Could not load original image: {e}")
+        
+        # Generate the image with the original as reference
         gender = job.get('gender', 'unisex')
-        print(f"Generating variation {variation_index} for job {job_id} (gender: {gender})")
+        print(f"Generating variation {variation_index} for job {job_id} (gender: {gender}, with_image: {original_image_base64 is not None})")
         result = generate_single_variation_image(
             variation['description'],
             variation_index,
             job_id,
             outfit_id,
-            gender
+            gender,
+            original_image_base64
         )
         
         # Update the variation with result
