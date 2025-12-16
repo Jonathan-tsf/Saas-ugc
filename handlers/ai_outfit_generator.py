@@ -59,32 +59,46 @@ TENUES EXISTANTES POUR {gender_context.upper()}:
 
 ÉTAPE 2: Génère exactement {num_to_generate} NOUVEAUX ENSEMBLES COMPLETS dans le MÊME STYLE/CATÉGORIE que les tenues existantes.
 
-RÈGLES:
-1. Chaque ensemble DOIT inclure un HAUT et un BAS coordonnés
+RÈGLES STRICTES:
+1. Chaque ensemble DOIT inclure un HAUT + un BAS + optionnellement des ACCESSOIRES (ceinture, casquette, chaussettes, etc.)
 2. N'existe PAS déjà dans la liste ci-dessus (évite les doublons)
-3. MÊME STYLE que les tenues existantes (si ce sont des tenues casual, génère du casual; si c'est du sport, génère du sport, etc.)
-4. Variés en termes de couleurs, motifs et coupes
+3. MÊME STYLE que les tenues existantes
+4. Variés en termes de couleurs et coupes
 5. Réalistes et vendables
 
-IMPORTANT: Chaque description doit décrire un ENSEMBLE COMPLET avec:
-- Un haut adapté au style détecté
-- Un bas adapté au style détecté  
-- Les deux pièces doivent être coordonnées en couleur/style
+INTERDICTIONS ABSOLUES:
+- PAS de motifs (pas de rayures, carreaux, imprimés, logos visibles)
+- PAS d'écritures ou de texte sur les vêtements
+- PAS de dégradés de couleurs - COULEURS UNIES uniquement
+- PAS de tenues vulgaires ou trop révélatrices
+- PAS de décolletés excessifs ou coupes indécentes
+
+TYPES DE VÊTEMENTS POSSIBLES:
+- Hauts: t-shirt, polo, chemise, blouse, pull, sweat, hoodie, veste, blazer, crop-top, brassière, débardeur, top
+- Bas: pantalon, jean, jogging, legging, short, jupe, bermuda
+- Accessoires: ceinture, casquette, bonnet, écharpe, chaussettes
+
+Chaque description doit être COMPLÈTE et DÉTAILLÉE:
+- Couleur principale (unie!)
+- Type de vêtement précis
+- Coupe (slim, oversize, taille haute, etc.)
+- Matière si pertinent (coton, lin, satin, etc.)
+- Accessoires coordonnés si inclus
 
 Réponds UNIQUEMENT avec du JSON valide:
 {{
-    "detected_style": "le style détecté (sport, casual, streetwear, etc.)",
+    "detected_style": "le style détecté",
     "outfits": [
-        {{"description": "Ensemble complet: [haut] + [bas] avec détails...", "type": "ensemble"}},
+        {{"description": "Description complète et détaillée de l'ensemble...", "type": "ensemble"}},
         ...
     ]
 }}
 
-Exemples de formats de description selon le style:
-- Sport: "Ensemble fitness corail: brassière bretelles fines + legging taille haute assorti"
-- Casual: "Tenue décontractée beige: t-shirt oversize en lin + pantalon large fluide"
-- Streetwear: "Look urbain noir: hoodie crop oversize + jogging baggy taille élastique"
-- Élégant: "Ensemble chic bordeaux: blouse satinée + pantalon cigarette taille haute"
+Exemples de bonnes descriptions (couleurs unies, pas de motifs):
+- "Ensemble sport femme rose poudré: brassière à bretelles fines + legging taille haute gainant + ceinture élastique assortie, tissu technique respirant"
+- "Tenue casual homme bleu marine: t-shirt col rond coupe regular en coton + chino slim + ceinture cuir marron"
+- "Look élégant femme bordeaux: blouse satinée col V manches 3/4 + pantalon cigarette taille haute + ceinture fine dorée"
+- "Ensemble streetwear homme gris chiné: hoodie oversize + jogging cargo + casquette assortie"
 """
 
     try:
@@ -347,27 +361,31 @@ def generate_ai_outfit_image(event):
         # Build prompt with reference images - style is dynamic based on description
         gender_context = "women's" if gender == 'female' else "men's"
         
-        prompt = f"""Based on the style of the reference images provided, create a COMPLETE {gender_context} OUTFIT SET:
+        prompt = f"""Create a COMPLETE {gender_context} OUTFIT based on this description:
 
 {description}
 
-CRITICAL INSTRUCTIONS:
-1. Generate a COMPLETE OUTFIT with BOTH a TOP and BOTTOM garment together in ONE image
-2. The top and bottom must be coordinated and match the description EXACTLY
-3. Match the EXACT SAME photography style as the reference images (flat lay style, pure white background)
-4. Layout: Show the complete outfit as a flat lay - top garment above, bottom garment below, arranged as if worn together
-5. Keep the same professional e-commerce quality
-6. Match the CLOTHING STYLE from the description (could be sport, casual, streetwear, elegant, etc.)
+IMPORTANT: The reference images show ONLY the photography style to follow (flat lay, white background, lighting). DO NOT copy the clothing designs from the reference images - create NEW clothes based on the text description above.
 
-Requirements:
+CRITICAL INSTRUCTIONS:
+1. Generate a COMPLETE OUTFIT with TOP + BOTTOM + any accessories mentioned in the description
+2. Follow the description EXACTLY - colors, clothing types, and style
+3. SOLID COLORS ONLY - absolutely NO patterns, NO stripes, NO prints, NO logos, NO text on clothes
+4. NO gradients - each piece must be a single solid color
+5. Tasteful and appropriate clothing - nothing vulgar or overly revealing
+
+PHOTOGRAPHY STYLE (copy from reference images):
 - Pure white background (#FFFFFF)
-- Flat lay photography style showing BOTH pieces together
-- E-commerce quality product photography
+- Flat lay photography style
+- Professional e-commerce quality lighting
 - NO human model visible, just the clothes laid flat
 - Square format (1:1), centered composition
-- Top garment positioned above, bottom garment below
-- Both pieces should look coordinated as a matching set
-- Follow the EXACT style described (sport, casual, elegant, etc.)
+
+LAYOUT:
+- Top garment positioned at the top
+- Bottom garment positioned below
+- Accessories (belt, cap, etc.) placed naturally around the outfit
+- All pieces should look coordinated as a matching set
 """
         
         headers = {"Content-Type": "application/json"}
