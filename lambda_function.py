@@ -108,6 +108,13 @@ from handlers.gender_conversion import (
     get_conversion_status,
 )
 
+# Import AI outfit generator handlers
+from handlers.ai_outfit_generator import (
+    start_ai_outfit_generation,
+    generate_ai_outfit_image,
+    get_ai_generation_status,
+)
+
 # Import authentication handlers
 from handlers.auth import (
     sign_up,
@@ -353,6 +360,25 @@ def lambda_handler(event, context):
                 event['pathParameters'] = event.get('pathParameters', {}) or {}
                 event['pathParameters']['gender'] = gender
                 return list_outfits_by_gender(event)
+    
+    # AI outfit generation routes
+    if path == '/api/admin/outfits/ai-generate':
+        if http_method == 'POST':
+            return start_ai_outfit_generation(event)
+    
+    if path == '/api/admin/outfits/ai-generate/generate':
+        if http_method == 'POST':
+            return generate_ai_outfit_image(event)
+    
+    if path.startswith('/api/admin/outfits/ai-generate/status/'):
+        if http_method == 'GET':
+            # Extract job_id from path
+            parts = path.split('/')
+            if len(parts) >= 7:
+                job_id = parts[6]
+                event['pathParameters'] = event.get('pathParameters', {}) or {}
+                event['pathParameters']['job_id'] = job_id
+                return get_ai_generation_status(event)
     
     # Outfit parameterized routes
     # Handle outfit variations routes first (more specific path)
