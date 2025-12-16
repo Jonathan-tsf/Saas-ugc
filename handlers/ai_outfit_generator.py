@@ -45,38 +45,49 @@ def generate_new_outfit_descriptions(existing_descriptions: list, gender: str, n
     """
     model_id = "us.anthropic.claude-sonnet-4-5-20250929-v1:0"
     
-    gender_context = "femme (vêtements féminins: brassières, leggings, crop tops, etc.)" if gender == 'female' else "homme (vêtements masculins: t-shirts, joggings, shorts, etc.)"
+    gender_context = "femme" if gender == 'female' else "homme"
     
     existing_list = "\n".join([f"- {desc}" for desc in existing_descriptions[:50]])  # Limit to 50 for context
+    
+    if gender == 'female':
+        outfit_examples = """- "Ensemble fitness corail: brassière à bretelles fines avec logo doré + legging taille haute assorti, coutures apparentes"
+- "Tenue sport noir et blanc: crop-top côtelé blanc cassé + legging noir push-up avec bandes blanches latérales"
+- "Set yoga lavande pastel: brassière croisée dos nageur + legging 7/8 sans coutures, tissu ultra-doux"
+- "Ensemble running néon: brassière maintien fort jaune fluo + short cycliste noir avec poche latérale"
+- "Tenue pilates émeraude: débardeur fluide dos ouvert + legging bootcut taille haute, ceinture élastique large"""
+    else:
+        outfit_examples = """- "Ensemble training gris anthracite: t-shirt compression manches courtes + jogging slim chevilles resserrées, poches zippées"
+- "Tenue sport noir et rouge: débardeur technique mesh + short basketball avec bandes latérales rouges"
+- "Set fitness bleu marine: t-shirt oversize col V + short running léger avec slip intégré"
+- "Ensemble musculation kaki: tank top large dos nageur + jogging cargo poches multiples"
+- "Tenue cardio noir total: t-shirt dry-fit manches longues + short cycliste compression"""
     
     prompt = f"""Tu es un expert en mode sportswear/fitness. Voici les tenues {gender_context} qui existent déjà dans notre catalogue:
 
 {existing_list}
 
-Génère exactement {num_to_generate} NOUVELLES descriptions de tenues de sport/fitness pour {gender_context} qui:
-1. N'existent PAS déjà dans la liste ci-dessus (évite les doublons)
-2. Sont variées en termes de couleurs, motifs, styles et coupes
-3. Sont réalistes et vendables
-4. Correspondent au style sportswear/fitness moderne
+Génère exactement {num_to_generate} NOUVEAUX ENSEMBLES COMPLETS de sport/fitness pour {gender_context} qui:
+1. Chaque ensemble DOIT inclure un HAUT et un BAS coordonnés
+2. N'existent PAS déjà dans la liste ci-dessus (évite les doublons)
+3. Sont variés en termes de couleurs, motifs, styles et coupes
+4. Sont réalistes et vendables
+5. Correspondent au style sportswear/fitness moderne
 
-Pour chaque tenue, fournis:
-- Une description détaillée (80-120 caractères) incluant: type de vêtement, couleur(s), marque fictive ou style, détails distinctifs
-- Le type de vêtement (t-shirt, brassiere, legging, jogging, short, debardeur, crop-top, sweat, veste)
+IMPORTANT: Chaque description doit décrire un ENSEMBLE COMPLET avec:
+- Un haut ({"brassière, crop-top, débardeur" if gender == 'female' else "t-shirt, débardeur, tank top"})
+- Un bas (legging, short, jogging)
+- Les deux pièces doivent être coordonnées en couleur/style
 
 Réponds UNIQUEMENT avec du JSON valide:
 {{
     "outfits": [
-        {{"description": "Description de la tenue 1...", "type": "legging"}},
-        {{"description": "Description de la tenue 2...", "type": "t-shirt"}},
+        {{"description": "Ensemble complet: [haut] + [bas] avec détails...", "type": "ensemble"}},
         ...
     ]
 }}
 
-Exemples de bonnes descriptions:
-- "Legging noir haute taille avec bandes latérales roses fluo, tissu compression, logo discret"
-- "T-shirt oversize gris chiné avec imprimé graphique géométrique, col large, coupe décontractée"
-- "Brassière sport turquoise tie-dye, bretelles croisées, maintien moyen, bande élastique large"
-- "Jogging slim bleu marine avec poches zippées, chevilles resserrées, logo brodé"
+Exemples de bonnes descriptions d'ENSEMBLES COMPLETS:
+{outfit_examples}
 """
 
     try:
@@ -334,27 +345,31 @@ def generate_ai_outfit_image(event):
             })
         
         description = generation.get('description', '')
-        outfit_type = generation.get('type', 'sport')
+        outfit_type = generation.get('type', 'ensemble')
         
         # Build prompt with reference images
-        gender_context = "women's fitness/sport clothing" if gender == 'female' else "men's fitness/sport clothing"
+        gender_context = "women's fitness/sport" if gender == 'female' else "men's fitness/sport"
         
-        prompt = f"""Based on the style of the reference images provided, create a NEW {gender_context} item:
+        prompt = f"""Based on the style of the reference images provided, create a COMPLETE {gender_context} OUTFIT SET:
 
 {description}
 
 CRITICAL INSTRUCTIONS:
-1. Match the EXACT SAME photography style as the reference images (flat lay or invisible mannequin, pure white background)
-2. Create a COMPLETELY NEW garment design based on the description
-3. Keep the same professional e-commerce quality
-4. This is {gender_context} - use appropriate fit and style
+1. Generate a COMPLETE OUTFIT with BOTH a TOP and BOTTOM garment together in ONE image
+2. The top and bottom must be coordinated and match the description
+3. Match the EXACT SAME photography style as the reference images (flat lay style, pure white background)
+4. Layout: Show the complete outfit as a flat lay - top garment above, bottom garment below, arranged as if worn together
+5. Keep the same professional e-commerce quality
+6. This is {gender_context} clothing - use appropriate fit and style for the gender
 
 Requirements:
 - Pure white background (#FFFFFF)
-- E-commerce quality product photography  
-- NO human model visible
+- Flat lay photography style showing BOTH pieces together
+- E-commerce quality product photography
+- NO human model visible, just the clothes laid flat
 - Square format (1:1), centered composition
-- Match the lighting and presentation style of the reference images
+- Top garment positioned above, bottom garment below
+- Both pieces should look coordinated as a matching set
 """
         
         headers = {"Content-Type": "application/json"}
