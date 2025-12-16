@@ -409,20 +409,23 @@ def get_variations_job_status(event):
 
 def apply_outfit_variation(event):
     """
-    Apply a selected variation to an outfit - PUT /api/admin/outfits/{id}/variations
+    Apply selected variations as NEW outfits - PUT /api/admin/outfits/{id}/variations
+    
+    Each selected variation creates a NEW outfit with the same gender and a generated type.
+    The original outfit is NOT modified.
     
     Body: {
+        "variations": [
+            {"description": "...", "image_url": "..."},
+            {"description": "...", "image_url": "..."}
+        ]
+    }
+    
+    OR single variation (legacy support):
+    {
         "description": "New description",
         "image_url": "S3 URL of the variation image"
     }
-    
-    OR (legacy support):
-    {
-        "description": "New description",
-        "image_base64": "base64 encoded image"
-    }
-    
-    This updates the outfit with the new description and image.
     """
     if not verify_admin(event):
         return response(401, {'error': 'Unauthorized'})
@@ -435,60 +438,109 @@ def apply_outfit_variation(event):
             return response(400, {'error': 'Outfit ID is required'})
         
         body = json.loads(event.get('body', '{}'))
-        new_description = body.get('description')
-        image_url = body.get('image_url')
-        image_base64 = body.get('image_base64')
         
-        if not new_description:
-            return response(400, {'error': 'description is required'})
-        
-        if not image_url and not image_base64:
-            return response(400, {'error': 'image_url or image_base64 is required'})
-        
-        # Check if outfit exists
+        # Check if outfit exists to get gender
         result = outfits_table.get_item(Key={'id': outfit_id})
-        outfit = result.get('Item')
+        original_outfit = result.get('Item')
         
-        if not outfit:
+        if not original_outfit:
             return response(404, {'error': 'Outfit not found'})
         
-        # If image_url is provided, download it and re-upload to permanent location
-        # If image_base64 is provided (legacy), upload that
-        if image_url:
-            # Download from variation URL
-            s3_key = image_url.replace(f"https://{S3_BUCKET}.s3.amazonaws.com/", "")
-            s3_response = s3.get_object(Bucket=S3_BUCKET, Key=s3_key)
-            image_data = s3_response['Body'].read()
-        else:
-            image_data = base64.b64decode(image_base64)
+        gender = original_outfit.get('gender', 'unisex')
         
-        # Upload to permanent outfit location
-        permanent_key = f"outfits/{outfit_id}.png"
-        final_image_url = upload_to_s3(permanent_key, image_data, 'image/png', cache_days=365)
+        # Support both array format and legacy single variation format
+        variations = body.get('variations', [])
         
-        # Update the outfit in DynamoDB
-        outfits_table.update_item(
-            Key={'id': outfit_id},
-            UpdateExpression="SET description = :desc, image_url = :url, updated_at = :updated",
-            ExpressionAttributeValues={
-                ':desc': new_description,
-                ':url': final_image_url,
-                ':updated': datetime.now().isoformat()
-            }
-        )
+        # Legacy support: single variation
+        if not variations and body.get('description'):
+            variations = [{
+                'description': body.get('description'),
+                'image_url': body.get('image_url'),
+                'image_base64': body.get('image_base64')
+            }]
         
-        # Get updated outfit
-        result = outfits_table.get_item(Key={'id': outfit_id})
-        updated_outfit = result.get('Item')
+        if not variations:
+            return response(400, {'error': 'variations array is required'})
+        
+        created_outfits = []
+        errors = []
+        
+        for i, variation in enumerate(variations):
+            try:
+                new_description = variation.get('description')
+                image_url = variation.get('image_url')
+                image_base64 = variation.get('image_base64')
+                
+                if not new_description:
+                    errors.append(f"Variation {i}: description is required")
+                    continue
+                
+                if not image_url and not image_base64:
+                    errors.append(f"Variation {i}: image_url or image_base64 is required")
+                    continue
+                
+                # Generate new outfit ID
+                new_outfit_id = str(uuid.uuid4())
+                
+                # Get image data
+                if image_url:
+                    s3_key = image_url.replace(f"https://{S3_BUCKET}.s3.amazonaws.com/", "")
+                    s3_response = s3.get_object(Bucket=S3_BUCKET, Key=s3_key)
+                    image_data = s3_response['Body'].read()
+                else:
+                    image_data = base64.b64decode(image_base64)
+                
+                # Upload to permanent outfit location
+                permanent_key = f"outfits/{new_outfit_id}.png"
+                final_image_url = upload_to_s3(permanent_key, image_data, 'image/png', cache_days=365)
+                
+                # Determine type from description using simple heuristics
+                # Default to the original outfit type
+                outfit_type = original_outfit.get('type', 'casual')
+                description_lower = new_description.lower()
+                if any(word in description_lower for word in ['sport', 'athletic', 'running', 'workout', 'training']):
+                    outfit_type = 'sport'
+                elif any(word in description_lower for word in ['elegant', 'formal', 'dress', 'suit', 'chic']):
+                    outfit_type = 'elegant'
+                elif any(word in description_lower for word in ['street', 'urban', 'hip', 'baggy']):
+                    outfit_type = 'streetwear'
+                elif any(word in description_lower for word in ['fitness', 'gym', 'legging', 'yoga']):
+                    outfit_type = 'fitness'
+                elif any(word in description_lower for word in ['outdoor', 'hiking', 'camping', 'nature']):
+                    outfit_type = 'outdoor'
+                elif any(word in description_lower for word in ['casual', 'everyday', 'comfortable', 'relaxed']):
+                    outfit_type = 'casual'
+                
+                # Create NEW outfit record
+                new_outfit = {
+                    'id': new_outfit_id,
+                    'description': new_description,
+                    'type': outfit_type,
+                    'gender': gender,
+                    'image_url': final_image_url,
+                    'ambassador_count': 0,
+                    'created_at': datetime.now().isoformat(),
+                    'updated_at': datetime.now().isoformat(),
+                    'generated_from': outfit_id  # Track source outfit
+                }
+                
+                outfits_table.put_item(Item=new_outfit)
+                created_outfits.append(decimal_to_python(new_outfit))
+                
+            except Exception as e:
+                print(f"Error creating outfit from variation {i}: {e}")
+                errors.append(f"Variation {i}: {str(e)}")
         
         return response(200, {
             'success': True,
-            'outfit': decimal_to_python(updated_outfit)
+            'created_count': len(created_outfits),
+            'outfits': created_outfits,
+            'errors': errors if errors else None
         })
         
     except Exception as e:
-        print(f"Error applying outfit variation: {e}")
-        return response(500, {'error': f'Failed to apply variation: {str(e)}'})
+        print(f"Error applying outfit variations: {e}")
+        return response(500, {'error': f'Failed to apply variations: {str(e)}'})
 
 
 # Legacy function name for backwards compatibility
