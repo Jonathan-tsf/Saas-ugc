@@ -179,30 +179,22 @@ def start_ai_outfit_generation(event):
         if not new_outfits:
             return response(500, {'error': 'Failed to generate new outfit descriptions'})
         
-        # Pick 2-3 random existing outfits as style reference
+        # Pick 2-3 random existing outfits as style reference (just store URLs, download later)
         num_references = min(3, len(gender_outfits))
         reference_outfits = random.sample(gender_outfits, num_references)
         
-        # Download reference images
+        # Just store URLs - we'll download images when generating each outfit
         reference_images = []
         for ref_outfit in reference_outfits:
             image_url = ref_outfit.get('image_url', '')
             if image_url:
-                try:
-                    s3_key = image_url.replace(f"https://{S3_BUCKET}.s3.amazonaws.com/", "")
-                    s3_response = s3.get_object(Bucket=S3_BUCKET, Key=s3_key)
-                    image_bytes = s3_response['Body'].read()
-                    image_base64 = base64.b64encode(image_bytes).decode('utf-8')
-                    reference_images.append({
-                        'base64': image_base64,
-                        'description': ref_outfit.get('description', ''),
-                        'url': image_url
-                    })
-                except Exception as e:
-                    print(f"Error downloading reference image: {e}")
+                reference_images.append({
+                    'url': image_url,
+                    'description': ref_outfit.get('description', '')
+                })
         
         if not reference_images:
-            return response(500, {'error': 'Failed to download reference images'})
+            return response(500, {'error': 'No reference images found'})
         
         print(f"Using {len(reference_images)} reference images for style")
         
@@ -230,12 +222,8 @@ def start_ai_outfit_generation(event):
             'gender': gender,
             'status': 'ready',
             'generations': generations,
-            'reference_images': [
-                {'url': img['url'], 'description': img['description']} 
-                for img in reference_images
-            ],
-            # Store base64 images separately (they're large)
-            'reference_images_base64': [img['base64'] for img in reference_images],
+            # Only store URLs, not base64 images (DynamoDB 400KB limit)
+            'reference_images': reference_images,
             'completed_count': 0,
             'total_count': len(generations),
             'created_at': now,
@@ -298,7 +286,7 @@ def generate_ai_outfit_image(event):
         
         generations = job.get('generations', [])
         gender = job.get('gender', 'female')
-        reference_images_base64 = job.get('reference_images_base64', [])
+        reference_images = job.get('reference_images', [])
         
         if generation_index >= len(generations):
             return response(400, {'error': 'Invalid generation index'})
@@ -310,6 +298,38 @@ def generate_ai_outfit_image(event):
             return response(200, {
                 'success': True,
                 'status': 'already_completed',
+                'generation': generation
+            })
+        
+        # Download reference images from S3 (not stored in job to avoid DynamoDB size limit)
+        reference_images_base64 = []
+        for ref_img in reference_images[:3]:
+            image_url = ref_img.get('url', '')
+            if image_url:
+                try:
+                    s3_key = image_url.replace(f"https://{S3_BUCKET}.s3.amazonaws.com/", "")
+                    s3_response = s3.get_object(Bucket=S3_BUCKET, Key=s3_key)
+                    image_bytes = s3_response['Body'].read()
+                    image_base64 = base64.b64encode(image_bytes).decode('utf-8')
+                    reference_images_base64.append(image_base64)
+                except Exception as e:
+                    print(f"Error downloading reference image {image_url}: {e}")
+        
+        if not reference_images_base64:
+            generation['status'] = 'error'
+            generation['error'] = 'Failed to download reference images'
+            jobs_table.update_item(
+                Key={'id': job_id},
+                UpdateExpression='SET generations = :g, updated_at = :u',
+                ExpressionAttributeValues={
+                    ':g': generations,
+                    ':u': datetime.now().isoformat()
+                }
+            )
+            return response(200, {
+                'success': False,
+                'status': 'error',
+                'error': generation['error'],
                 'generation': generation
             })
         
