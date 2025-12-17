@@ -270,28 +270,22 @@ def generate_conversion_image(event):
         print(f"Conversion: {conversion['original_description']} → {new_description}")
         
         # Generate the new image with Nano Banana Pro
-        gender_context = {
-            'male': "men's clothing / masculine style",
-            'female': "women's clothing / feminine style"
-        }.get(target_gender, 'unisex clothing')
-        
-        prompt = f"""Based on the provided clothing item, create the {target_gender.upper()} VERSION of this outfit:
+        prompt = f"""Transform this clothing item into its {target_gender.upper()} equivalent:
 
-{new_description}
+Original → New: {new_description}
 
-CRITICAL INSTRUCTIONS:
-1. This is {gender_context} - create the masculine/feminine equivalent
-2. Keep the same sporty/fitness style and similar colors
-3. CHANGE the garment type appropriately (e.g., legging → jogger, sports bra → t-shirt)
-4. Maintain e-commerce quality: flat lay or invisible mannequin on pure white background
+CRITICAL: Keep EVERYTHING IDENTICAL except the garment type:
+- SAME exact background (white, studio, etc.)
+- SAME exact presentation style (flat lay, mannequin, folded, etc.)
+- SAME exact lighting and shadows
+- SAME exact camera angle and composition
+- SAME exact colors and color tones
+- SAME exact image quality and resolution
 
-Requirements:
-- Pure white background (#FFFFFF)
-- E-commerce quality product photography
-- NO human model visible
-- Square format (1:1), centered composition
-- Create a realistic, sellable sports clothing item
-"""
+ONLY CHANGE: The garment itself to be the {target_gender} version.
+Example: women's legging → men's jogger (same color, same style, same presentation)
+
+Do NOT change how the clothing is displayed or photographed. Only swap the garment type."""
         
         headers = {"Content-Type": "application/json"}
         
