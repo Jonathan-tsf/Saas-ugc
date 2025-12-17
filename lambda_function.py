@@ -135,44 +135,50 @@ from handlers.auth import (
 # ============================================
 def debug_categorize_outfit(event):
     """
-    Use Claude to categorize an outfit based on its description.
+    Use Claude Vision to categorize an outfit based on its IMAGE.
     TEMPORARY DEBUG FUNCTION - DELETE AFTER USE
     """
-    from config import bedrock_runtime, dynamodb
+    from config import bedrock_runtime, dynamodb, s3, S3_BUCKET
+    import base64
     
     try:
         body = json.loads(event.get('body', '{}') or '{}')
         outfit_id = body.get('outfit_id')
-        description = body.get('description', '')
+        image_url = body.get('image_url', '')
         current_type = body.get('current_type', '')
         valid_categories = body.get('valid_categories', [])
         
-        if not outfit_id or not description:
-            return response(400, {'error': 'outfit_id and description are required'})
+        if not outfit_id or not image_url:
+            return response(400, {'error': 'outfit_id and image_url are required'})
         
-        # Use Claude to categorize
+        # Download image from S3
+        try:
+            s3_key = image_url.replace(f"https://{S3_BUCKET}.s3.amazonaws.com/", "")
+            s3_response = s3.get_object(Bucket=S3_BUCKET, Key=s3_key)
+            image_bytes = s3_response['Body'].read()
+            image_base64 = base64.b64encode(image_bytes).decode('utf-8')
+        except Exception as e:
+            print(f"Error downloading image: {e}")
+            return response(500, {'error': f'Failed to download image: {str(e)}'})
+        
+        # Use Claude Vision to categorize
         model_id = "us.anthropic.claude-sonnet-4-5-20250929-v1:0"
         
         categories_list = '\n'.join([f"- {cat}" for cat in valid_categories])
         
-        prompt = f"""Tu dois catégoriser cette tenue vestimentaire dans UNE SEULE des catégories suivantes.
+        prompt = f"""Regarde cette image de vêtement et catégorise-la dans UNE SEULE des catégories suivantes.
 
-CATÉGORIES VALIDES (choisis UNE seule):
+CATÉGORIES DISPONIBLES:
 {categories_list}
 
-DESCRIPTION DE LA TENUE:
-"{description}"
+DÉFINITIONS:
+- Sport: Vêtements de sport, fitness, yoga, running, gym (leggings, brassières sport, t-shirts techniques, shorts sport)
+- Casual: Vêtements décontractés du quotidien (jeans, t-shirts basiques, sweats, pulls)
+- Formel: Vêtements habillés pour le travail ou occasions formelles (costumes, chemises, pantalons habillés, blazers)
+- Soirée: Vêtements élégants pour sorties (robes de soirée, tenues chic, vêtements brillants/paillettes)
+- Spécial: Tout le reste - uniformes (policier, médecin, cuisine), maillots de bain, déguisements, tenues thématiques
 
-INSTRUCTIONS:
-1. Analyse la description de la tenue
-2. Identifie le style principal (sport, casual, élégant, streetwear, etc.)
-3. Choisis la catégorie la plus appropriée parmi la liste ci-dessus
-4. Si la description est vague ou ambiguë, utilise ton raisonnement sémantique pour deviner la catégorie la plus probable basée sur les mots-clés
-
-IMPORTANT: Réponds UNIQUEMENT avec le nom exact d'une catégorie de la liste, rien d'autre.
-Exemple de réponse: Casual
-Exemple de réponse: Activewear / Sport
-Exemple de réponse: Streetwear
+IMPORTANT: Réponds UNIQUEMENT avec le nom exact d'une catégorie, rien d'autre.
 
 Catégorie:"""
 
@@ -180,7 +186,23 @@ Catégorie:"""
             "anthropic_version": "bedrock-2023-05-31",
             "max_tokens": 50,
             "messages": [
-                {"role": "user", "content": prompt}
+                {
+                    "role": "user",
+                    "content": [
+                        {
+                            "type": "image",
+                            "source": {
+                                "type": "base64",
+                                "media_type": "image/jpeg",
+                                "data": image_base64
+                            }
+                        },
+                        {
+                            "type": "text",
+                            "text": prompt
+                        }
+                    ]
+                }
             ]
         }
         
@@ -203,8 +225,8 @@ Catégorie:"""
                     category = valid_cat
                     break
             else:
-                # Default to "Special" if no match
-                category = "Special"
+                # Default to "Spécial" if no match
+                category = "Spécial"
         
         # Update DynamoDB if category changed
         updated = False

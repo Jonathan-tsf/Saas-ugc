@@ -16,21 +16,7 @@ from config import (
 outfits_table = dynamodb.Table('outfits')
 
 # Valid outfit types and genders
-VALID_TYPES = [
-    'Casual',
-    'Smart Casual',
-    'Business / Office',
-    'Formal / Black Tie',
-    'Evening / Party',
-    'Streetwear',
-    'Activewear / Sport',
-    'Outdoor / Performance',
-    'Loungewear',
-    'Sleepwear',
-    'Swimwear / Resort',
-    'Traditional / Cultural',
-    'Special',
-]
+VALID_TYPES = ['Sport', 'Casual', 'Formel', 'Soirée', 'Spécial']
 VALID_GENDERS = ['male', 'female', 'unisex']
 
 
