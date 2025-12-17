@@ -272,20 +272,13 @@ def generate_conversion_image(event):
         # Generate the new image with Nano Banana Pro
         prompt = f"""Transform this clothing item into its {target_gender.upper()} equivalent:
 
-Original → New: {new_description}
-
 CRITICAL: Keep EVERYTHING IDENTICAL except the garment type:
-- SAME exact background (white, studio, etc.)
-- SAME exact presentation style (flat lay, mannequin, folded, etc.)
+- SAME exact presentation style 
 - SAME exact lighting and shadows
-- SAME exact camera angle and composition
 - SAME exact colors and color tones
 - SAME exact image quality and resolution
 
-ONLY CHANGE: The garment itself to be the {target_gender} version.
-Example: women's legging → men's jogger (same color, same style, same presentation)
-
-Do NOT change how the clothing is displayed or photographed. Only swap the garment type."""
+ONLY CHANGE: The garment itself to be the {target_gender} version."""
         
         headers = {"Content-Type": "application/json"}
         
