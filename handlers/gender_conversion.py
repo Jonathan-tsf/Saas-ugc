@@ -272,13 +272,13 @@ def generate_conversion_image(event):
         # Generate the new image with Nano Banana Pro
         prompt = f"""Transform this clothing item into its {target_gender.upper()} equivalent:
 
-CRITICAL: Keep EVERYTHING IDENTICAL except the garment type:
-- SAME exact presentation style 
-- SAME exact lighting and shadows
-- SAME exact colors and color tones
-- SAME exact image quality and resolution
+        CRITICAL: Keep EVERYTHING IDENTICAL except the garment type:
+        - SAME exact presentation style 
+        - SAME exact lighting and shadows
+        - SAME exact colors and color tones
+        - SAME exact image quality and resolution
 
-ONLY CHANGE: The garment itself to be the {target_gender} version."""
+        ONLY CHANGE: The garment itself to be the {target_gender} version."""
         
         headers = {"Content-Type": "application/json"}
         

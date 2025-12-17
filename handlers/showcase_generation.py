@@ -81,6 +81,101 @@ G. Scènes lifestyle naturelles:
 """
 
 
+# Products table for fetching ambassador's products
+products_table = dynamodb.Table('products')
+
+
+def get_ambassador_products(ambassador):
+    """
+    Get all products assigned to an ambassador with their details.
+    Returns list of product dicts with id, name, description, image_url, category.
+    """
+    product_ids = ambassador.get('product_ids', [])
+    if not product_ids:
+        return []
+    
+    products = []
+    for product_id in product_ids:
+        try:
+            result = products_table.get_item(Key={'id': product_id})
+            product = result.get('Item')
+            if product:
+                products.append({
+                    'id': product.get('id'),
+                    'name': product.get('name', ''),
+                    'description': product.get('description', ''),
+                    'image_url': product.get('image_url', ''),
+                    'category': product.get('category', 'other'),
+                    'brand': product.get('brand', '')
+                })
+        except Exception as e:
+            print(f"Error fetching product {product_id}: {e}")
+    
+    return products
+
+
+def plan_product_placement(num_photos, products):
+    """
+    Plan which photos will feature products and which products.
+    
+    Rules:
+    - Products should appear in 30-50% of photos (diversified, not too much)
+    - Multiple products can be combined in some scenes
+    - Some scenes should have NO product (natural lifestyle shots)
+    - Product placement should feel natural based on scene type
+    
+    Returns: list of dicts with photo_index and product(s) to feature
+    """
+    if not products:
+        return [{'photo_index': i, 'products': [], 'has_product': False} for i in range(num_photos)]
+    
+    placements = []
+    num_products = len(products)
+    
+    # Calculate how many photos should have products (30-50%)
+    min_product_photos = int(num_photos * 0.3)
+    max_product_photos = int(num_photos * 0.5)
+    num_product_photos = random.randint(min_product_photos, max_product_photos)
+    
+    # Select which photo indices will have products
+    all_indices = list(range(num_photos))
+    random.shuffle(all_indices)
+    product_photo_indices = set(all_indices[:num_product_photos])
+    
+    # Distribute products across those photos
+    product_cycle = products * (num_product_photos // num_products + 1)  # Ensure enough products
+    random.shuffle(product_cycle)
+    
+    product_idx = 0
+    for i in range(num_photos):
+        if i in product_photo_indices:
+            # This photo has a product
+            selected_product = product_cycle[product_idx]
+            product_idx += 1
+            
+            # Sometimes combine 2 products if we have multiple (10% chance)
+            combined_products = [selected_product]
+            if num_products >= 2 and random.random() < 0.1 and product_idx < len(product_cycle):
+                additional_product = product_cycle[product_idx]
+                if additional_product['id'] != selected_product['id']:
+                    combined_products.append(additional_product)
+                    product_idx += 1
+            
+            placements.append({
+                'photo_index': i,
+                'products': combined_products,
+                'has_product': True
+            })
+        else:
+            placements.append({
+                'photo_index': i,
+                'products': [],
+                'has_product': False
+            })
+    
+    return placements
+
+
 def get_available_outfit_categories(ambassador):
     """Get outfit categories where ambassador has validated photos"""
     ambassador_outfits = ambassador.get('ambassador_outfits', [])
@@ -110,16 +205,81 @@ def get_outfit_image_for_category(ambassador, category):
     return None
 
 
-def generate_scene_descriptions_with_claude(available_categories, ambassador_gender):
-    """Use AWS Bedrock Claude to generate scene descriptions"""
+def generate_scene_descriptions_with_claude(available_categories, ambassador_gender, ambassador_description="", products=None, product_placements=None):
+    """
+    Use AWS Bedrock Claude to generate scene descriptions.
+    
+    Now enhanced with:
+    - Ambassador description for personality/style context
+    - Products list with descriptions for coherent product integration
+    - Product placement plan (which photos should feature which products)
+    """
     
     categories_str = ", ".join(available_categories)
     gender_pronoun = "il" if ambassador_gender == "male" else "elle"
     gender_article = "un homme" if ambassador_gender == "male" else "une femme"
     
+    # Build product context if products exist
+    product_context = ""
+    product_instructions = ""
+    if products and product_placements:
+        product_descriptions = []
+        for p in products:
+            desc = f"- {p['name']}"
+            if p.get('brand'):
+                desc += f" ({p['brand']})"
+            if p.get('description'):
+                desc += f": {p['description'][:150]}"
+            if p.get('category'):
+                desc += f" [catégorie: {p['category']}]"
+            product_descriptions.append(desc)
+        
+        product_context = f"""
+
+PRODUITS DE L'AMBASSADEUR (à intégrer naturellement dans certaines scènes):
+{chr(10).join(product_descriptions)}
+
+"""
+        # Build which photos should have products
+        photos_with_products = [p for p in product_placements if p['has_product']]
+        if photos_with_products:
+            product_photo_instructions = []
+            for placement in photos_with_products:
+                photo_num = placement['photo_index'] + 1
+                product_names = [prod['name'] for prod in placement['products']]
+                product_photo_instructions.append(f"  - Photo {photo_num}: intégrer {', '.join(product_names)}")
+            
+            product_instructions = f"""
+
+INTÉGRATION DES PRODUITS (TRÈS IMPORTANT):
+Les produits doivent apparaître de façon NATURELLE et COHÉRENTE dans ces photos:
+{chr(10).join(product_photo_instructions)}
+
+Pour les photos AVEC produit:
+- Le produit doit être VISIBLE et RECONNAISSABLE dans la scène
+- L'intégration doit être naturelle (pas forcée, pas publicitaire)
+- Exemples: tenir une bouteille de boisson, porter des écouteurs, avoir un shaker sur la table, etc.
+- Le produit doit correspondre au contexte de la scène
+
+Pour les photos SANS produit (les autres):
+- Scènes lifestyle naturelles SANS aucun produit visible
+- Focus sur l'ambassadeur et l'ambiance uniquement
+"""
+    
+    # Build ambassador context
+    ambassador_context = ""
+    if ambassador_description:
+        ambassador_context = f"""
+
+PROFIL DE L'AMBASSADEUR:
+{ambassador_description}
+
+Utilise ce profil pour adapter le style et l'ambiance des scènes à la personnalité de l'ambassadeur.
+"""
+    
     system_prompt = f"""Tu es un expert en création de contenu pour TikTok et réseaux sociaux. 
 Tu dois générer exactement 15 descriptions de scènes TRÈS DÉTAILLÉES pour des photos d'ambassadeurs UGC.
-
+{ambassador_context}{product_context}
 RÈGLES CRITIQUES:
 1. Le regard caméra est UNIQUEMENT pour les scènes "face cam TikTok talk" (max 4-5 scènes sur 15)
 2. Pour les autres scènes: regard NATUREL sur l'activité (écran d'ordi, téléphone, livre, exercice, nourriture, etc.)
@@ -129,7 +289,7 @@ RÈGLES CRITIQUES:
 6. La tenue doit être cohérente avec le décor (fitness pour la gym, casual pour la maison, etc.)
 7. Tu ne peux utiliser QUE ces catégories de tenues: {categories_str}
 8. Répartis équitablement les catégories sur les 15 photos
-
+{product_instructions}
 RÈGLE ABSOLUE - ZÉRO TEXTE:
 - AUCUN texte visible dans la scène (pas de marques, pas de logos, pas d'écritures)
 - Pas de valeurs sur les poids de gym (haltères sans chiffres)
@@ -147,6 +307,7 @@ Chaque description doit contenir OBLIGATOIREMENT:
 4. La DIRECTION DU REGARD (vers quoi la personne regarde exactement)
 5. L'EXPRESSION faciale
 6. L'AMBIANCE générale avec des mots-clés lifestyle (fitness, wellness, productivity, healthy, etc.)
+7. Si un produit est à intégrer: COMMENT et OÙ il apparaît dans la scène
 
 MOTS-CLÉS À INTÉGRER selon la scène:
 - Fitness/Gym: workout, training, musculation, exercise, fitness, gym, sport, athletic, wellness
@@ -170,12 +331,16 @@ DISTRIBUTION DU REGARD (sur 15 photos):
 Réponds UNIQUEMENT avec un JSON valide au format suivant (sans markdown, sans ```json, juste le JSON pur):
 {{
     "picture_1": {{
-        "position": "Scène [catégorie]: Description TRÈS détaillée de la scène avec décor, pose, expression, direction du regard, ambiance, mots-clés lifestyle...",
-        "outfit_category": "casual"
+        "position": "Scène [catégorie]: Description TRÈS détaillée de la scène avec décor, pose, expression, direction du regard, ambiance, mots-clés lifestyle, et si applicable: description du produit visible et comment il est intégré...",
+        "outfit_category": "casual",
+        "has_product": true,
+        "product_name": "Nom du produit si applicable ou null"
     }},
     "picture_2": {{
         "position": "Scène [catégorie]: ...",
-        "outfit_category": "fitness"
+        "outfit_category": "fitness",
+        "has_product": false,
+        "product_name": null
     }},
     ...jusqu'à picture_15
 }}
@@ -188,7 +353,8 @@ CHECKLIST POUR CHAQUE DESCRIPTION:
 ✅ Direction du regard claire
 ✅ Expression faciale
 ✅ Mots-clés lifestyle/fitness/wellness intégrés
-✅ ZÉRO texte, marque, logo, chiffre visible"""
+✅ ZÉRO texte, marque, logo, chiffre visible
+✅ Si produit: description claire de son intégration"""
 
     try:
         request_body = {
@@ -414,13 +580,36 @@ def download_image_as_base64(url):
         return None
 
 
-def generate_showcase_image(outfit_image_base64, scene_description):
-    """Generate a showcase image using Gemini 3 Pro Image (Nano Banana Pro)"""
+def generate_showcase_image(outfit_image_base64, scene_description, product_images_base64=None):
+    """
+    Generate a showcase image using Gemini 3 Pro Image (Nano Banana Pro).
+    
+    Args:
+        outfit_image_base64: Base64 encoded image of person wearing outfit
+        scene_description: Description of the scene to generate
+        product_images_base64: Optional list of dicts with 'image_base64' and 'description' for products to include
+    
+    Nano Banana Pro can use up to 14 reference images.
+    """
+    
+    # Build product instructions if products are provided
+    product_instructions = ""
+    if product_images_base64:
+        product_names = [p.get('name', 'product') for p in product_images_base64]
+        product_instructions = f"""
+
+IMPORTANT - PRODUCT INTEGRATION:
+The following product(s) must appear NATURALLY in the scene: {', '.join(product_names)}
+- The product(s) should be VISIBLE and RECOGNIZABLE in the image
+- Integrate them naturally into the scene context (held, on a table, being used, etc.)
+- Preserve the exact appearance of the product(s) from the reference images
+- The product placement should feel authentic, not forced or overly promotional
+"""
     
     prompt = f"""Using the provided image of a person wearing an outfit, create a new photo of this EXACT same person in the following scene:
 
 {scene_description}
-
+{product_instructions}
 CRITICAL REQUIREMENTS:
 - The person's face, body, skin tone, and ALL physical features must remain COMPLETELY IDENTICAL
 - The outfit they are wearing must remain EXACTLY the same as in the reference image
@@ -439,19 +628,34 @@ ABSOLUTE RULE - ZERO TEXT:
 
     headers = {"Content-Type": "application/json"}
     
+    # Build parts array with outfit image first, then any product images
+    parts = [
+        {"text": prompt},
+        {
+            "inlineData": {
+                "mimeType": "image/jpeg",
+                "data": outfit_image_base64
+            }
+        }
+    ]
+    
+    # Add product images if provided (Nano Banana Pro supports up to 14 reference images)
+    if product_images_base64:
+        for product in product_images_base64[:6]:  # Limit to 6 product images (conservative)
+            if product.get('image_base64'):
+                parts.append({
+                    "inlineData": {
+                        "mimeType": "image/jpeg",
+                        "data": product['image_base64']
+                    }
+                })
+                print(f"Added product image to request: {product.get('name', 'unknown')}")
+    
     # Format correct selon la doc Gemini 3 Pro Image Preview (Nano Banana Pro):
     # https://ai.google.dev/gemini-api/docs/image-generation
     payload = {
         "contents": [{
-            "parts": [
-                {"text": prompt},
-                {
-                    "inlineData": {
-                        "mimeType": "image/jpeg",
-                        "data": outfit_image_base64
-                    }
-                }
-            ]
+            "parts": parts
         }],
         "generationConfig": {
             "responseModalities": ["TEXT", "IMAGE"],
@@ -621,6 +825,11 @@ def generate_showcase_scenes_async(job_id):
     Generate scene descriptions with Claude asynchronously.
     Called by Lambda invoke (InvocationType='Event').
     Updates job in DynamoDB when complete.
+    
+    Now enhanced with:
+    - Ambassador description for personality context
+    - Products with descriptions for coherent integration
+    - Product placement planning (30-50% of photos)
     """
     print(f"[{job_id}] Starting async scene generation with Claude...")
     
@@ -637,10 +846,32 @@ def generate_showcase_scenes_async(job_id):
         ambassador_gender = job.get('ambassador_gender', 'male')
         available_categories = job.get('available_categories', ['casual'])
         
-        # Generate scenes with Claude
+        # Get full ambassador data for description and products
+        ambassador_result = ambassadors_table.get_item(Key={'id': ambassador_id})
+        ambassador = ambassador_result.get('Item', {})
+        
+        ambassador_description = ambassador.get('description', '')
+        print(f"[{job_id}] Ambassador description: {ambassador_description[:100] if ambassador_description else 'None'}...")
+        
+        # Get ambassador's products
+        products = get_ambassador_products(ambassador)
+        print(f"[{job_id}] Ambassador has {len(products)} products assigned")
+        
+        # Plan product placement (which photos will have products)
+        product_placements = plan_product_placement(NUM_SHOWCASE_PHOTOS, products)
+        photos_with_products = sum(1 for p in product_placements if p['has_product'])
+        print(f"[{job_id}] Product placement: {photos_with_products}/{NUM_SHOWCASE_PHOTOS} photos will have products")
+        
+        # Generate scenes with Claude (with products and ambassador context)
         print(f"[{job_id}] Calling Claude to generate {NUM_SHOWCASE_PHOTOS} scenes...")
         try:
-            scenes = generate_scene_descriptions_with_claude(available_categories, ambassador_gender)
+            scenes = generate_scene_descriptions_with_claude(
+                available_categories, 
+                ambassador_gender,
+                ambassador_description=ambassador_description,
+                products=products,
+                product_placements=product_placements
+            )
             print(f"[{job_id}] Claude generated {len(scenes)} scenes successfully")
         except Exception as e:
             print(f"[{job_id}] ERROR calling Claude: {e}")
@@ -649,29 +880,42 @@ def generate_showcase_scenes_async(job_id):
             scenes = generate_fallback_scenes(available_categories, ambassador_gender)
             print(f"[{job_id}] Using fallback scenes: {len(scenes)} scenes")
         
-        # Convert scenes to list format
+        # Convert scenes to list format with product info
         scenes_list = []
         for i, (key, scene) in enumerate(scenes.items(), 1):
             scene_id = str(uuid.uuid4())
+            
+            # Get product placement info for this scene
+            placement = product_placements[i-1] if i-1 < len(product_placements) else {'has_product': False, 'products': []}
+            
+            # Try to get product info from Claude's response or from our placement plan
+            has_product = scene.get('has_product', placement['has_product'])
+            product_name = scene.get('product_name')
+            product_ids = [p['id'] for p in placement.get('products', [])] if placement['has_product'] else []
+            
             scenes_list.append({
                 'scene_id': scene_id,
                 'scene_number': i,
                 'scene_description': scene['position'],
                 'outfit_category': scene['outfit_category'],
+                'has_product': has_product,
+                'product_name': product_name,
+                'product_ids': product_ids,  # IDs of products to include in image generation
                 'generated_images': [],
                 'selected_image': None,
                 'status': 'pending'
             })
         
-        # Update job with scenes
+        # Update job with scenes and product placements
         jobs_table.update_item(
             Key={'id': job_id},
-            UpdateExpression='SET #status = :status, scenes = :scenes, results = :results, updated_at = :updated',
+            UpdateExpression='SET #status = :status, scenes = :scenes, results = :results, product_placements = :placements, updated_at = :updated',
             ExpressionAttributeNames={'#status': 'status'},
             ExpressionAttributeValues={
                 ':status': 'scenes_ready',
                 ':scenes': scenes_list,
                 ':results': scenes_list,
+                ':placements': product_placements,
                 ':updated': datetime.now().isoformat()
             }
         )
@@ -837,8 +1081,11 @@ def generate_scene(event):
     scene_number = scene.get('scene_number', scene_index + 1)
     scene_description = scene.get('scene_description', '')
     outfit_category = scene.get('outfit_category', 'casual')
+    has_product = scene.get('has_product', False)
+    product_ids = scene.get('product_ids', [])
     
     print(f"Generating images for scene {scene_number}: {scene_description[:50]}...")
+    print(f"Scene has product: {has_product}, product_ids: {product_ids}")
     
     # Get outfit image for this category
     outfit_image_url = get_outfit_image_for_category(ambassador, outfit_category)
@@ -875,6 +1122,35 @@ def generate_scene(event):
     
     print(f"Using outfit image: {outfit_image_url[:80]}...")
     
+    # Get product images if this scene should have products
+    product_images_base64 = None
+    if has_product and product_ids:
+        product_images_base64 = []
+        for product_id in product_ids:
+            try:
+                product_result = products_table.get_item(Key={'id': product_id})
+                product = product_result.get('Item')
+                if product and product.get('image_url'):
+                    product_image_base64 = get_image_from_s3(product['image_url'])
+                    if product_image_base64:
+                        product_images_base64.append({
+                            'id': product_id,
+                            'name': product.get('name', 'Product'),
+                            'description': product.get('description', ''),
+                            'image_base64': product_image_base64
+                        })
+                        print(f"Loaded product image: {product.get('name', product_id)}")
+                    else:
+                        print(f"Failed to load image for product {product_id}")
+                else:
+                    print(f"Product {product_id} not found or has no image")
+            except Exception as e:
+                print(f"Error loading product {product_id}: {e}")
+        
+        if not product_images_base64:
+            print("Warning: No product images loaded, generating scene without products")
+            product_images_base64 = None
+    
     # Generate 2 variations
     generated_urls = []
     replicate_predictions = []  # Store prediction IDs for async processing
@@ -883,7 +1159,11 @@ def generate_scene(event):
     for variation in range(2):
         print(f"Generating variation {variation + 1}/2...")
         try:
-            image_base64 = generate_showcase_image(outfit_image_base64, scene_description)
+            image_base64 = generate_showcase_image(
+                outfit_image_base64, 
+                scene_description,
+                product_images_base64=product_images_base64
+            )
             if image_base64:
                 url = save_showcase_image_to_s3(image_base64, ambassador_id, f"{scene_number}_{variation}")
                 if url:
