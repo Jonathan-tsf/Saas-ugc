@@ -14,15 +14,13 @@ from decimal import Decimal
 from config import (
     response, decimal_to_python, verify_admin,
     dynamodb, s3, S3_BUCKET, upload_to_s3,
-    generate_outfit_variations_descriptions, NANO_BANANA_API_KEY
+    generate_outfit_variations_descriptions
 )
+from handlers.gemini_client import generate_image
 
 # DynamoDB tables
 outfits_table = dynamodb.Table('outfits')
 jobs_table = dynamodb.Table('nano_banana_jobs')
-
-# Gemini 3 Pro Image (Nano Banana Pro) endpoint
-GEMINI_API_URL = "https://generativelanguage.googleapis.com/v1beta/models/gemini-3-pro-image-preview:generateContent"
 
 # Default and max variations
 DEFAULT_VARIATIONS = 6
@@ -75,77 +73,26 @@ Requirements:
 - Apply ONLY the described variation, keep everything else identical
 """
         
-        headers = {
-            "Content-Type": "application/json"
-        }
-        
-        # Build the parts - include original image if provided
-        parts = []
-        
-        # Add the original image first (for reference)
+        # Build reference images list
+        reference_images = []
         if original_image_base64:
-            parts.append({
-                "inlineData": {
-                    "mimeType": "image/jpeg",
-                    "data": original_image_base64
-                }
-            })
+            reference_images.append(original_image_base64)
         
-        # Add the text prompt
-        parts.append({
-            "text": prompt
-        })
-        
-        payload = {
-            "contents": [{
-                "parts": parts
-            }],
-            "generationConfig": {
-                "responseModalities": ["TEXT", "IMAGE"],
-                "imageConfig": {
-                    "aspectRatio": "1:1",
-                    "imageSize": "1K"
-                }
-            }
-        }
-        
-        # Call Gemini API with API key
-        api_url = f"{GEMINI_API_URL}?key={NANO_BANANA_API_KEY}"
-        
-        resp = requests.post(
-            api_url,
-            headers=headers,
-            json=payload,
-            timeout=120
-        )
-        
-        if resp.status_code != 200:
-            print(f"Gemini API error for variation {index}: {resp.status_code} - {resp.text}")
+        # Call Gemini API via gemini_client (with Vertex AI fallback)
+        try:
+            image_base64 = generate_image(
+                prompt=prompt,
+                reference_images=reference_images if reference_images else None,
+                aspect_ratio="1:1",
+                image_size="1K"
+            )
+        except Exception as api_error:
+            print(f"Gemini API error for variation {index}: {api_error}")
             return {
                 'index': index,
                 'description': description,
-                'error': f"API error: {resp.status_code}"
+                'error': f"API error: {str(api_error)}"
             }
-        
-        result = resp.json()
-        
-        # Extract the image from the response
-        candidates = result.get('candidates', [])
-        if not candidates:
-            return {
-                'index': index,
-                'description': description,
-                'error': "No candidates in response"
-            }
-        
-        content = candidates[0].get('content', {})
-        parts = content.get('parts', [])
-        
-        image_base64 = None
-        for part in parts:
-            if 'inlineData' in part:
-                image_base64 = part['inlineData'].get('data')
-                break
         
         if not image_base64:
             return {

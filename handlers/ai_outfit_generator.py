@@ -20,15 +20,13 @@ from decimal import Decimal
 from config import (
     response, decimal_to_python, verify_admin,
     dynamodb, s3, S3_BUCKET, upload_to_s3,
-    bedrock_runtime, NANO_BANANA_API_KEY
+    bedrock_runtime
 )
+from handlers.gemini_client import generate_image
 
 # DynamoDB tables
 outfits_table = dynamodb.Table('outfits')
 jobs_table = dynamodb.Table('nano_banana_jobs')
-
-# Gemini 3 Pro Image (Nano Banana Pro) endpoint
-GEMINI_API_URL = "https://generativelanguage.googleapis.com/v1beta/models/gemini-3-pro-image-preview:generateContent"
 
 
 def generate_new_outfit_descriptions(existing_descriptions: list, gender: str, num_to_generate: int) -> list:
@@ -388,47 +386,20 @@ LAYOUT:
 - All pieces should look coordinated as a matching set
 """
         
-        headers = {"Content-Type": "application/json"}
-        
-        # Build parts with reference images first
-        parts = []
-        for ref_base64 in reference_images_base64[:3]:  # Max 3 references
-            parts.append({
-                "inlineData": {
-                    "mimeType": "image/jpeg",
-                    "data": ref_base64
-                }
-            })
-        
-        # Add the text prompt
-        parts.append({"text": prompt})
-        
-        payload = {
-            "contents": [{"parts": parts}],
-            "generationConfig": {
-                "responseModalities": ["TEXT", "IMAGE"],
-                "imageConfig": {
-                    "aspectRatio": "1:1",
-                    "imageSize": "1K"
-                }
-            }
-        }
-        
-        api_url = f"{GEMINI_API_URL}?key={NANO_BANANA_API_KEY}"
-        
         print(f"Generating AI outfit {generation_index}: {description}")
         
-        resp = requests.post(
-            api_url,
-            headers=headers,
-            json=payload,
-            timeout=120
-        )
-        
-        if resp.status_code != 200:
-            print(f"Gemini API error: {resp.status_code} - {resp.text}")
+        # Call Gemini API via gemini_client (with Vertex AI fallback)
+        try:
+            image_base64_result = generate_image(
+                prompt=prompt,
+                reference_images=reference_images_base64[:3] if reference_images_base64 else None,
+                aspect_ratio="1:1",
+                image_size="1K"
+            )
+        except Exception as api_error:
+            print(f"Gemini API error: {api_error}")
             generation['status'] = 'error'
-            generation['error'] = f"Image generation failed: {resp.status_code}"
+            generation['error'] = f"Image generation failed: {str(api_error)}"
             jobs_table.update_item(
                 Key={'id': job_id},
                 UpdateExpression='SET generations = :g, updated_at = :u',
@@ -443,20 +414,6 @@ LAYOUT:
                 'error': generation['error'],
                 'generation': generation
             })
-        
-        result = resp.json()
-        
-        # Extract image from response
-        candidates = result.get('candidates', [])
-        image_base64_result = None
-        
-        if candidates:
-            content = candidates[0].get('content', {})
-            parts = content.get('parts', [])
-            for part in parts:
-                if 'inlineData' in part:
-                    image_base64_result = part['inlineData'].get('data')
-                    break
         
         if not image_base64_result:
             generation['status'] = 'error'

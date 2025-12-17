@@ -16,8 +16,9 @@ from datetime import datetime
 
 from config import (
     response, decimal_to_python, verify_admin,
-    dynamodb, s3, S3_BUCKET, NANO_BANANA_API_KEY, REPLICATE_API_KEY, upload_to_s3
+    dynamodb, s3, S3_BUCKET, REPLICATE_API_KEY, upload_to_s3
 )
+from handlers.gemini_client import generate_image as gemini_generate_image
 
 # DynamoDB tables
 ambassadors_table = dynamodb.Table('ambassadors')
@@ -32,9 +33,6 @@ LAMBDA_FUNCTION_NAME = 'saas-ugc'
 
 # Claude Sonnet 4.5 model ID via inference profile
 CLAUDE_MODEL_ID = "us.anthropic.claude-sonnet-4-5-20250929-v1:0"
-
-# Gemini 3 Pro Image Preview (Nano Banana Pro)
-GEMINI_API_URL = "https://generativelanguage.googleapis.com/v1beta/models/gemini-3-pro-image-preview:generateContent"
 
 # Replicate API URL for fallback
 REPLICATE_API_URL = "https://api.replicate.com/v1/models/google/nano-banana-pro/predictions"
@@ -582,7 +580,7 @@ def download_image_as_base64(url):
 
 def generate_showcase_image(outfit_image_base64, scene_description, product_images_base64=None):
     """
-    Generate a showcase image using Gemini 3 Pro Image (Nano Banana Pro).
+    Generate a showcase image using Gemini 3 Pro Image (Nano Banana Pro) with Vertex AI fallback.
     
     Args:
         outfit_image_base64: Base64 encoded image of person wearing outfit
@@ -626,95 +624,43 @@ ABSOLUTE RULE - ZERO TEXT:
 - NO text on computer screens or phones (screens should be blank or show abstract colors)
 - Completely clean, text-free environment"""
 
-    headers = {"Content-Type": "application/json"}
+    # Build reference images list: outfit first, then products
+    reference_images = [outfit_image_base64]
     
-    # Build parts array with outfit image first, then any product images
-    parts = [
-        {"text": prompt},
-        {
-            "inlineData": {
-                "mimeType": "image/jpeg",
-                "data": outfit_image_base64
-            }
-        }
-    ]
-    
-    # Add product images if provided (Nano Banana Pro supports up to 14 reference images)
     if product_images_base64:
-        for product in product_images_base64[:6]:  # Limit to 6 product images (conservative)
+        for product in product_images_base64[:6]:  # Limit to 6 product images
             if product.get('image_base64'):
-                parts.append({
-                    "inlineData": {
-                        "mimeType": "image/jpeg",
-                        "data": product['image_base64']
-                    }
-                })
+                reference_images.append(product['image_base64'])
                 print(f"Added product image to request: {product.get('name', 'unknown')}")
     
-    # Format correct selon la doc Gemini 3 Pro Image Preview (Nano Banana Pro):
-    # https://ai.google.dev/gemini-api/docs/image-generation
-    payload = {
-        "contents": [{
-            "parts": parts
-        }],
-        "generationConfig": {
-            "responseModalities": ["TEXT", "IMAGE"],
-            "imageConfig": {
-                "aspectRatio": "9:16",
-                "imageSize": "2K"
-            }
-        }
-    }
-    
     try:
-        url = f"{GEMINI_API_URL}?key={NANO_BANANA_API_KEY}"
-        data = json.dumps(payload).encode('utf-8')
-        req = urllib.request.Request(url, data=data, headers=headers, method='POST')
+        print(f"Calling Gemini (with Vertex AI fallback) for scene: {scene_description[:50]}...")
         
-        print(f"Calling Gemini 3 Pro Image (Nano Banana Pro) for scene: {scene_description[:50]}...")
+        image_base64 = gemini_generate_image(
+            prompt=prompt,
+            reference_images=reference_images,
+            aspect_ratio="9:16",
+            image_size="2K"
+        )
         
-        with urllib.request.urlopen(req, timeout=180) as api_response:
-            result = json.loads(api_response.read().decode('utf-8'))
+        if image_base64:
+            print("Image generated successfully")
+            return image_base64
+        else:
+            print("No image returned from Gemini")
+            return None
             
-            print(f"Gemini response keys: {result.keys()}")
-            
-            if 'candidates' in result and len(result['candidates']) > 0:
-                candidate = result['candidates'][0]
-                if 'content' in candidate and 'parts' in candidate['content']:
-                    for part in candidate['content']['parts']:
-                        # Skip thought images (intermediate reasoning images from Nano Banana Pro)
-                        if part.get('thought'):
-                            print("Skipping thought image...")
-                            continue
-                        if 'inlineData' in part:
-                            print("Found inlineData in response - image generated successfully")
-                            return part['inlineData']['data']
-                        elif 'inline_data' in part:
-                            print("Found inline_data in response - image generated successfully")
-                            return part['inline_data']['data']
-            
-            print(f"No image in Gemini response: {json.dumps(result)[:500]}")
-            
-    except urllib.error.HTTPError as e:
-        error_body = e.read().decode('utf-8') if e.fp else 'No error body'
-        print(f"Gemini API HTTP error: {e.code} - {error_body[:1000]}")
+    except Exception as e:
+        error_msg = str(e)
+        print(f"Error generating showcase image: {error_msg}")
         
-        # Check if quota exceeded (429) - raise specific exception
-        if e.code == 429:
+        # Check if it's a quota error to trigger Replicate fallback
+        if "quota" in error_msg.lower() or "429" in error_msg:
             raise QuotaExceededException("Gemini API quota exceeded")
         
-        # For other HTTP errors, return None (Replicate needs async handling)
-        return None
-        
-    except QuotaExceededException:
-        # Re-raise quota exception to be handled by caller
-        raise
-    except Exception as e:
-        print(f"Error generating showcase image: {e}")
         import traceback
         traceback.print_exc()
-    
-    return None
+        return None
 
 
 class QuotaExceededException(Exception):

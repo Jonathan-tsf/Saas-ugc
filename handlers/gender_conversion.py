@@ -14,15 +14,13 @@ from decimal import Decimal
 from config import (
     response, decimal_to_python, verify_admin,
     dynamodb, s3, S3_BUCKET, upload_to_s3,
-    generate_gender_conversion_description, NANO_BANANA_API_KEY
+    generate_gender_conversion_description
 )
+from handlers.gemini_client import generate_image
 
 # DynamoDB tables
 outfits_table = dynamodb.Table('outfits')
 jobs_table = dynamodb.Table('nano_banana_jobs')
-
-# Gemini 3 Pro Image (Nano Banana Pro) endpoint
-GEMINI_API_URL = "https://generativelanguage.googleapis.com/v1beta/models/gemini-3-pro-image-preview:generateContent"
 
 
 def list_outfits_by_gender(event):
@@ -269,7 +267,7 @@ def generate_conversion_image(event):
         
         print(f"Conversion: {conversion['original_description']} → {new_description}")
         
-        # Generate the new image with Nano Banana Pro
+        # Generate the new image with Gemini (with Vertex AI fallback)
         prompt = f"""Transform this clothing item into its {target_gender.upper()} equivalent:
 
         CRITICAL: Keep EVERYTHING IDENTICAL except the garment type:
@@ -280,42 +278,17 @@ def generate_conversion_image(event):
 
         ONLY CHANGE: The garment itself to be the {target_gender} version."""
         
-        headers = {"Content-Type": "application/json"}
-        
-        parts = [
-            {
-                "inlineData": {
-                    "mimeType": "image/jpeg",
-                    "data": image_base64
-                }
-            },
-            {"text": prompt}
-        ]
-        
-        payload = {
-            "contents": [{"parts": parts}],
-            "generationConfig": {
-                "responseModalities": ["TEXT", "IMAGE"],
-                "imageConfig": {
-                    "aspectRatio": "1:1",
-                    "imageSize": "1K"
-                }
-            }
-        }
-        
-        api_url = f"{GEMINI_API_URL}?key={NANO_BANANA_API_KEY}"
-        
-        resp = requests.post(
-            api_url,
-            headers=headers,
-            json=payload,
-            timeout=120
-        )
-        
-        if resp.status_code != 200:
-            print(f"Gemini API error: {resp.status_code} - {resp.text}")
+        try:
+            image_base64_result = generate_image(
+                prompt=prompt,
+                reference_images=[image_base64],
+                aspect_ratio="1:1",
+                image_size="1K"
+            )
+        except Exception as api_error:
+            print(f"Gemini API error: {api_error}")
             conversion['status'] = 'error'
-            conversion['error'] = f"Image generation failed: {resp.status_code}"
+            conversion['error'] = f"Image generation failed: {str(api_error)}"
             jobs_table.update_item(
                 Key={'id': job_id},
                 UpdateExpression='SET conversions = :c, updated_at = :u',
@@ -330,20 +303,6 @@ def generate_conversion_image(event):
                 'error': conversion['error'],
                 'conversion': conversion
             })
-        
-        result = resp.json()
-        
-        # Extract image from response
-        candidates = result.get('candidates', [])
-        image_base64_result = None
-        
-        if candidates:
-            content = candidates[0].get('content', {})
-            parts = content.get('parts', [])
-            for part in parts:
-                if 'inlineData' in part:
-                    image_base64_result = part['inlineData'].get('data')
-                    break
         
         if not image_base64_result:
             conversion['status'] = 'error'
