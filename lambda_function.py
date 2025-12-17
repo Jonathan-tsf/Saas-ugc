@@ -130,6 +130,112 @@ from handlers.auth import (
 )
 
 
+# ============================================
+# DEBUG FUNCTION - TEMPORARY - DELETE AFTER USE
+# ============================================
+def debug_categorize_outfit(event):
+    """
+    Use Claude to categorize an outfit based on its description.
+    TEMPORARY DEBUG FUNCTION - DELETE AFTER USE
+    """
+    from config import bedrock_runtime, dynamodb
+    
+    try:
+        body = json.loads(event.get('body', '{}') or '{}')
+        outfit_id = body.get('outfit_id')
+        description = body.get('description', '')
+        current_type = body.get('current_type', '')
+        valid_categories = body.get('valid_categories', [])
+        
+        if not outfit_id or not description:
+            return response(400, {'error': 'outfit_id and description are required'})
+        
+        # Use Claude to categorize
+        model_id = "us.anthropic.claude-sonnet-4-5-20250929-v1:0"
+        
+        categories_list = '\n'.join([f"- {cat}" for cat in valid_categories])
+        
+        prompt = f"""Tu dois catégoriser cette tenue vestimentaire dans UNE SEULE des catégories suivantes.
+
+CATÉGORIES VALIDES (choisis UNE seule):
+{categories_list}
+
+DESCRIPTION DE LA TENUE:
+"{description}"
+
+INSTRUCTIONS:
+1. Analyse la description de la tenue
+2. Identifie le style principal (sport, casual, élégant, streetwear, etc.)
+3. Choisis la catégorie la plus appropriée parmi la liste ci-dessus
+4. Si la description est vague ou ambiguë, utilise ton raisonnement sémantique pour deviner la catégorie la plus probable basée sur les mots-clés
+
+IMPORTANT: Réponds UNIQUEMENT avec le nom exact d'une catégorie de la liste, rien d'autre.
+Exemple de réponse: Casual
+Exemple de réponse: Activewear / Sport
+Exemple de réponse: Streetwear
+
+Catégorie:"""
+
+        request_body = {
+            "anthropic_version": "bedrock-2023-05-31",
+            "max_tokens": 50,
+            "messages": [
+                {"role": "user", "content": prompt}
+            ]
+        }
+        
+        response_bedrock = bedrock_runtime.invoke_model(
+            modelId=model_id,
+            body=json.dumps(request_body),
+            contentType="application/json",
+            accept="application/json"
+        )
+        
+        response_body = json.loads(response_bedrock['body'].read())
+        category = response_body.get('content', [{}])[0].get('text', '').strip()
+        
+        # Validate category is in the list
+        if category not in valid_categories:
+            # Try to find a close match
+            category_lower = category.lower()
+            for valid_cat in valid_categories:
+                if valid_cat.lower() in category_lower or category_lower in valid_cat.lower():
+                    category = valid_cat
+                    break
+            else:
+                # Default to "Special" if no match
+                category = "Special"
+        
+        # Update DynamoDB if category changed
+        updated = False
+        if category != current_type:
+            outfits_table = dynamodb.Table('outfits')
+            outfits_table.update_item(
+                Key={'id': outfit_id},
+                UpdateExpression='SET #type = :type',
+                ExpressionAttributeNames={'#type': 'type'},
+                ExpressionAttributeValues={':type': category}
+            )
+            updated = True
+        
+        return response(200, {
+            'success': True,
+            'outfit_id': outfit_id,
+            'old_category': current_type,
+            'new_category': category,
+            'updated': updated
+        })
+        
+    except Exception as e:
+        print(f"Debug categorize error: {e}")
+        import traceback
+        traceback.print_exc()
+        return response(500, {'error': str(e)})
+# ============================================
+# END DEBUG FUNCTION
+# ============================================
+
+
 def lambda_handler(event, context):
     """Main Lambda handler - routes requests to appropriate functions"""
     print(f"Event: {json.dumps(event)}")
@@ -379,6 +485,11 @@ def lambda_handler(event, context):
                 event['pathParameters'] = event.get('pathParameters', {}) or {}
                 event['pathParameters']['job_id'] = job_id
                 return get_ai_generation_status(event)
+    
+    # DEBUG: Categorize outfit route (TEMPORARY - DELETE AFTER USE)
+    if path == '/api/admin/outfits/debug-categorize':
+        if http_method == 'POST':
+            return debug_categorize_outfit(event)
     
     # Outfit parameterized routes
     # Handle outfit variations routes first (more specific path)
