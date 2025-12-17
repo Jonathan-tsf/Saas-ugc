@@ -243,6 +243,27 @@ def generate_conversion_image(event):
             target_gender
         )
         
+        # Check if conversion is possible
+        if not conversion_result.get('convertible', True):
+            reason = conversion_result.get('reason', 'Non convertible')
+            print(f"Skipping conversion - not convertible: {reason}")
+            conversion['status'] = 'skipped'
+            conversion['error'] = f"Non convertible: {reason}"
+            jobs_table.update_item(
+                Key={'id': job_id},
+                UpdateExpression='SET conversions = :c, updated_at = :u',
+                ExpressionAttributeValues={
+                    ':c': conversions,
+                    ':u': datetime.now().isoformat()
+                }
+            )
+            return response(200, {
+                'success': True,
+                'status': 'skipped',
+                'reason': reason,
+                'conversion': conversion
+            })
+        
         new_description = conversion_result.get('description', '')
         new_type = conversion_result.get('type', conversion['original_type'])
         

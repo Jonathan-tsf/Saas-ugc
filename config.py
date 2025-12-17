@@ -374,50 +374,64 @@ def generate_gender_conversion_description(image_base64: str, original_descripti
         target_gender: 'male' or 'female'
     
     Returns:
-        dict with 'description' (new description) and 'type' (outfit type for the new gender)
+        dict with:
+        - 'convertible': bool - True if conversion makes sense, False otherwise
+        - 'description': new description (if convertible)
+        - 'type': outfit type (if convertible)
+        - 'reason': reason for non-conversion (if not convertible)
     """
     model_id = "us.anthropic.claude-sonnet-4-5-20250929-v1:0"
     
     # Define conversion mappings for context
     if original_gender == 'female' and target_gender == 'male':
         conversion_examples = """
-CONVERSIONS FÉMININES → MASCULINES:
-- Brassière de sport → T-shirt ou débardeur de sport
-- Legging → Jogging ou short de sport
-- Crop top → T-shirt de sport
-- Short court/cycliste → Short de sport mi-cuisse
-- Top sans manches → Débardeur de sport
-- Ensemble 2 pièces femme → Ensemble jogging homme ou t-shirt + short"""
+CONVERSIONS POSSIBLES FÉMININES → MASCULINES:
+- T-shirt femme → T-shirt homme
+- Short de sport femme → Short de sport homme  
+- Débardeur femme → Débardeur homme
+- Jogging femme → Jogging homme
+- Sweat/Hoodie femme → Sweat/Hoodie homme
+
+VÊTEMENTS NON CONVERTIBLES (mettre convertible: false):
+- Brassière de sport (pas d'équivalent masculin)
+- Legging moulant (pas vraiment porté par les hommes en sport)
+- Crop top (pas d'équivalent masculin)
+- Short cycliste très court
+- Pantalon patte d'éléphant
+- Vêtements très échancrés ou moulants typiquement féminins"""
     else:
         conversion_examples = """
-CONVERSIONS MASCULINES → FÉMININES:  
-- T-shirt de sport → Brassière ou crop top de sport
-- Jogging → Legging de sport
-- Short de sport → Short cycliste ou legging court
-- Débardeur → Top de sport ou brassière
-- Ensemble jogging homme → Ensemble legging + brassière"""
+CONVERSIONS POSSIBLES MASCULINES → FÉMININES:
+- T-shirt homme → T-shirt femme ou crop top
+- Short de sport homme → Short de sport femme
+- Débardeur homme → Débardeur femme ou brassière
+- Jogging homme → Jogging femme ou legging
+
+VÊTEMENTS NON CONVERTIBLES (mettre convertible: false):
+- Boxer de sport (sous-vêtement)"""
     
-    prompt = f"""Regarde cette image de vêtement de sport. C'est un vêtement {'féminin' if original_gender == 'female' else 'masculin'}.
+    prompt = f"""Regarde cette image de vêtement. C'est un vêtement {'féminin' if original_gender == 'female' else 'masculin'}.
 Description originale: "{original_description}"
 
-Tu dois créer la VERSION {'MASCULINE' if target_gender == 'male' else 'FÉMININE'} ÉQUIVALENTE de ce vêtement.
+ÉTAPE 1: D'abord, détermine si ce vêtement peut être converti en version {'masculine' if target_gender == 'male' else 'féminine'}.
 
 {conversion_examples}
 
-RÈGLES:
-1. CONVERTIR le TYPE de vêtement vers son équivalent pour l'autre genre
-2. GARDER le même style sportif/fitness
-3. GARDER des couleurs similaires ou complémentaires  
-4. ADAPTER la coupe au nouveau genre (ex: plus ample pour homme, plus ajusté pour femme)
-5. La description doit faire 80-120 caractères en français
+ÉTAPE 2: Si convertible, génère la description. Si NON convertible, explique pourquoi.
 
 Réponds UNIQUEMENT avec du JSON valide:
-{{"description": "Description détaillée du vêtement converti pour {'homme' if target_gender == 'male' else 'femme'}...", "type": "type_de_vetement"}}
 
-Exemples de bonnes conversions:
-- "Brassière rose Nike" → {{"description": "T-shirt de sport rose Nike coupe regular, col rond, tissu Dri-FIT respirant", "type": "t-shirt"}}
-- "Legging noir compression" → {{"description": "Jogging noir de sport coupe slim, tissu stretch, bande élastique à la taille", "type": "jogging"}}
-- "T-shirt bleu Adidas homme" → {{"description": "Brassière de sport bleue Adidas, maintien moyen, bretelles croisées dans le dos", "type": "brassiere"}}
+Si CONVERTIBLE:
+{{"convertible": true, "description": "Description du vêtement converti (80-120 caractères)...", "type": "t-shirt"}}
+
+Si NON CONVERTIBLE:
+{{"convertible": false, "reason": "Raison courte (ex: brassière sans équivalent masculin)"}}
+
+EXEMPLES:
+- Brassière rose → {{"convertible": false, "reason": "Brassière de sport - pas d'équivalent masculin direct"}}
+- Legging noir → {{"convertible": false, "reason": "Legging moulant - pas couramment porté par les hommes"}}
+- T-shirt femme bleu → {{"convertible": true, "description": "T-shirt de sport bleu coupe regular homme, col rond, tissu respirant", "type": "t-shirt"}}
+- Short femme rose → {{"convertible": true, "description": "Short de sport rose homme, coupe mi-cuisse, tissu léger", "type": "short"}}
 """
 
     try:
