@@ -75,14 +75,14 @@ Generate a professional fashion photo in portrait orientation (9:16 aspect ratio
             "parts": [
                 {"text": prompt},
                 {
-                    "inlineData": {
-                        "mimeType": "image/jpeg",
+                    "inline_data": {
+                        "mime_type": "image/jpeg",
                         "data": profile_image_base64
                     }
                 },
                 {
-                    "inlineData": {
-                        "mimeType": "image/jpeg", 
+                    "inline_data": {
+                        "mime_type": "image/jpeg", 
                         "data": outfit_image_base64
                     }
                 }
@@ -102,15 +102,12 @@ Generate a professional fashion photo in portrait orientation (9:16 aspect ratio
     # Generate 2 images
     for i in range(2):
         try:
-            print(f"Generating outfit image {i+1}/2 with Nano Banana Pro...")
             api_response = requests.post(
                 f"{GEMINI_API_URL}?key={NANO_BANANA_API_KEY}",
                 headers=headers,
                 json=payload,
                 timeout=120
             )
-            
-            print(f"API response status: {api_response.status_code}")
             
             if api_response.status_code == 200:
                 result = api_response.json()
@@ -120,35 +117,16 @@ Generate a professional fashion photo in portrait orientation (9:16 aspect ratio
                     candidate = result['candidates'][0]
                     if 'content' in candidate and 'parts' in candidate['content']:
                         for part in candidate['content']['parts']:
-                            # Skip thought images
-                            if part.get('thought'):
-                                print("Skipping thought image...")
-                                continue
                             if 'inlineData' in part:
                                 image_data = part['inlineData']['data']
                                 generated_images.append(image_data)
-                                print(f"Image {i+1} generated successfully")
                                 break
-                            elif 'inline_data' in part:
-                                image_data = part['inline_data']['data']
-                                generated_images.append(image_data)
-                                print(f"Image {i+1} generated successfully (snake_case)")
-                                break
-                        else:
-                            print(f"No image found in response parts: {[list(p.keys()) for p in candidate['content']['parts']]}")
-                    else:
-                        print(f"No content/parts in candidate: {list(candidate.keys())}")
-                else:
-                    print(f"No candidates in response: {list(result.keys())}")
             else:
-                print(f"API error: {api_response.status_code} - {api_response.text[:500]}")
+                print(f"API error: {api_response.status_code} - {api_response.text}")
                 
         except Exception as e:
             print(f"Error generating image {i+1}: {e}")
-            import traceback
-            traceback.print_exc()
     
-    print(f"Generated {len(generated_images)} images total")
     return generated_images
 
 
