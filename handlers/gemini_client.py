@@ -21,19 +21,21 @@ MODELS = [
     {
         'name': 'gemini-3-pro-image-preview',
         'display': 'Nano Banana Pro',
-        'supports_image_config': True  # Supports aspectRatio and imageSize
+        'supports_aspect_ratio': True,
+        'supports_image_size': True  # Supports 1K, 2K, 4K
     },
     {
-        'name': 'gemini-2.0-flash-exp',
-        'display': 'Gemini 2.0 Flash',
-        'supports_image_config': False  # Does NOT support aspectRatio or imageSize
+        'name': 'gemini-2.5-flash-preview-image',
+        'display': 'Gemini 2.5 Flash Image',
+        'supports_aspect_ratio': True,
+        'supports_image_size': False  # Only default resolution
     }
 ]
 
 # Track quota status per model
 _quota_status = {
     'gemini-3-pro-image-preview': {'exhausted': False, 'reset_time': None},
-    'gemini-2.0-flash-exp': {'exhausted': False, 'reset_time': None}
+    'gemini-2.5-flash-preview-image': {'exhausted': False, 'reset_time': None}
 }
 
 
@@ -166,12 +168,14 @@ def generate_image(
                 "responseModalities": ["TEXT", "IMAGE"]
             }
             
-            # Only add imageConfig for models that support it
-            if model_config.get('supports_image_config'):
-                generation_config["imageConfig"] = {
-                    "aspectRatio": aspect_ratio,
-                    "imageSize": image_size
-                }
+            # Build imageConfig based on model capabilities
+            if model_config.get('supports_aspect_ratio') or model_config.get('supports_image_size'):
+                image_config = {}
+                if model_config.get('supports_aspect_ratio'):
+                    image_config["aspectRatio"] = aspect_ratio
+                if model_config.get('supports_image_size'):
+                    image_config["imageSize"] = image_size
+                generation_config["imageConfig"] = image_config
             
             payload = {
                 "contents": [{"parts": parts}],
