@@ -348,9 +348,14 @@ def continue_transformation(event):
         next_step = current_step + 1
         
         # Get the selected image from S3
-        # If selected_index is -1, use original image
+        # If selected_index is -1, use CURRENT image (from previous step), not the original
         if selected_index == -1:
-            selected_var_key = f"transform_sessions/{session_id}/original.png"
+            # For step 1, use original. For later steps, use the previously selected image
+            if current_step == 1:
+                selected_var_key = f"transform_sessions/{session_id}/original.png"
+            else:
+                # Use the image selected at the previous step (current state)
+                selected_var_key = f"transform_sessions/{session_id}/step{current_step - 1}_selected.png"
         else:
             selected_var_key = f"transform_sessions/{session_id}/step{current_step}_var{selected_index}.png"
         
