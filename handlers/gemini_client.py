@@ -24,7 +24,8 @@ from config import (
 
 # API endpoints
 GOOGLE_AI_STUDIO_URL = "https://generativelanguage.googleapis.com/v1beta/models/gemini-3-pro-image-preview:generateContent"
-VERTEX_AI_URL_TEMPLATE = "https://{location}-aiplatform.googleapis.com/v1/projects/{project}/locations/{location}/publishers/google/models/gemini-2.0-flash-exp:generateContent"
+# For global endpoint, the URL format is different (no region prefix)
+VERTEX_AI_MODEL_NAME = "gemini-3-pro-image-preview"
 
 # Track quota status to avoid repeated failed calls
 _quota_status = {
@@ -186,7 +187,7 @@ def _call_google_ai_studio(payload: dict) -> dict:
 
 
 def _call_vertex_ai(payload: dict) -> dict:
-    """Call Vertex AI API (fallback)"""
+    """Call Vertex AI API (fallback) using global endpoint for Gemini 3 Pro Image"""
     if not VERTEX_AI_PROJECT_ID:
         raise Exception("Vertex AI not configured (missing VERTEX_AI_PROJECT_ID)")
     
@@ -195,13 +196,11 @@ def _call_vertex_ai(payload: dict) -> dict:
         if _quota_status['vertex_ai']['exhausted']:
             raise QuotaExhaustedException("Vertex AI quota exhausted")
     
-    # For Vertex AI, we need to adapt the payload format slightly
-    # Vertex AI uses the same format but different auth
+    # Use global endpoint for gemini-3-pro-image-preview 
+    # Format: https://aiplatform.googleapis.com/v1/projects/{project}/locations/global/publishers/google/models/{model}:generateContent
+    url = f"https://aiplatform.googleapis.com/v1/projects/{VERTEX_AI_PROJECT_ID}/locations/global/publishers/google/models/{VERTEX_AI_MODEL_NAME}:generateContent"
     
-    url = VERTEX_AI_URL_TEMPLATE.format(
-        location=VERTEX_AI_LOCATION,
-        project=VERTEX_AI_PROJECT_ID
-    )
+    print(f"[GeminiClient] Vertex AI URL: {url}")
     
     # Get access token
     access_token = _get_vertex_ai_access_token()
@@ -255,7 +254,7 @@ def generate_image(
     Raises:
         Exception if both providers fail
     """
-    # Build payload
+    # Build payload - NOTE: Vertex AI requires "role" field in contents
     parts = [{"text": prompt}]
     
     if reference_images:
@@ -267,8 +266,21 @@ def generate_image(
                 }
             })
     
-    payload = {
+    # Google AI Studio payload (no role required)
+    google_ai_payload = {
         "contents": [{"parts": parts}],
+        "generationConfig": {
+            "responseModalities": ["TEXT", "IMAGE"],
+            "imageConfig": {
+                "aspectRatio": aspect_ratio,
+                "imageSize": image_size
+            }
+        }
+    }
+    
+    # Vertex AI payload (role is required!)
+    vertex_ai_payload = {
+        "contents": [{"role": "user", "parts": parts}],
         "generationConfig": {
             "responseModalities": ["TEXT", "IMAGE"],
             "imageConfig": {
@@ -284,7 +296,7 @@ def generate_image(
     if NANO_BANANA_API_KEY and not _quota_status['google_ai_studio']['exhausted']:
         try:
             print("[GeminiClient] Trying Google AI Studio...")
-            result = _call_google_ai_studio(payload)
+            result = _call_google_ai_studio(google_ai_payload)
             image_b64 = _extract_image_from_response(result)
             if image_b64:
                 print("[GeminiClient] Success with Google AI Studio")
@@ -300,7 +312,7 @@ def generate_image(
     if VERTEX_AI_PROJECT_ID and not _quota_status['vertex_ai']['exhausted']:
         try:
             print("[GeminiClient] Trying Vertex AI fallback...")
-            result = _call_vertex_ai(payload)
+            result = _call_vertex_ai(vertex_ai_payload)
             image_b64 = _extract_image_from_response(result)
             if image_b64:
                 print("[GeminiClient] Success with Vertex AI")
