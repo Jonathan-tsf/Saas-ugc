@@ -315,10 +315,27 @@ def generate_image(
         try:
             print("[GeminiClient] Trying Vertex AI fallback...")
             result = _call_vertex_ai(vertex_ai_payload)
-            image_b64 = _extract_image_from_response(result)
-            if image_b64:
-                print("[GeminiClient] Success with Vertex AI")
-                return image_b64
+            
+            # Log the full response for debugging
+            if 'candidates' not in result or len(result.get('candidates', [])) == 0:
+                print(f"[GeminiClient] Vertex AI returned no candidates. Response: {json.dumps(result)[:500]}")
+                # Check for safety blocks
+                if 'promptFeedback' in result:
+                    print(f"[GeminiClient] Prompt feedback: {result['promptFeedback']}")
+                errors.append(f"Vertex AI: No candidates returned")
+            else:
+                image_b64 = _extract_image_from_response(result)
+                if image_b64:
+                    print("[GeminiClient] Success with Vertex AI")
+                    return image_b64
+                else:
+                    # Log why extraction failed
+                    candidate = result['candidates'][0]
+                    finish_reason = candidate.get('finishReason', 'unknown')
+                    print(f"[GeminiClient] Vertex AI no image in response. finishReason={finish_reason}")
+                    if 'safetyRatings' in candidate:
+                        print(f"[GeminiClient] Safety ratings: {candidate['safetyRatings']}")
+                    errors.append(f"Vertex AI: No image returned (finishReason={finish_reason})")
         except QuotaExhaustedException as e:
             errors.append(f"Vertex AI: {e}")
             print(f"[GeminiClient] {e}")

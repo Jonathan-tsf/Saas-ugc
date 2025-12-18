@@ -28,52 +28,80 @@ def detect_image_aspect_ratio(image_base64: str) -> str:
     """
     Detect the aspect ratio of a base64-encoded image and return the closest supported ratio.
     Returns aspect ratio string like "9:16", "16:9", "1:1", etc.
+    Works with or without PIL by parsing image headers.
     """
-    try:
-        # Try to use PIL if available
-        from PIL import Image
-        
-        # Decode base64 to bytes
-        image_data = base64.b64decode(image_base64)
-        img = Image.open(BytesIO(image_data))
-        width, height = img.size
-        
-        # Calculate actual ratio
+    # Map ratios to their numeric values
+    ratio_values = {
+        "1:1": 1.0,
+        "2:3": 2/3,      # ~0.67 (portrait)
+        "3:2": 3/2,      # ~1.5 (landscape)
+        "3:4": 3/4,      # 0.75 (portrait)
+        "4:3": 4/3,      # ~1.33 (landscape)
+        "4:5": 4/5,      # 0.8 (portrait)
+        "5:4": 5/4,      # 1.25 (landscape)
+        "9:16": 9/16,    # ~0.56 (portrait - phone)
+        "16:9": 16/9,    # ~1.78 (landscape - video)
+        "21:9": 21/9,    # ~2.33 (ultrawide)
+    }
+    
+    def find_closest_ratio(width, height):
         actual_ratio = width / height
-        
-        # Map ratios to their numeric values
-        ratio_values = {
-            "1:1": 1.0,
-            "2:3": 2/3,      # ~0.67 (portrait)
-            "3:2": 3/2,      # ~1.5 (landscape)
-            "3:4": 3/4,      # 0.75 (portrait)
-            "4:3": 4/3,      # ~1.33 (landscape)
-            "4:5": 4/5,      # 0.8 (portrait)
-            "5:4": 5/4,      # 1.25 (landscape)
-            "9:16": 9/16,    # ~0.56 (portrait - phone)
-            "16:9": 16/9,    # ~1.78 (landscape - video)
-            "21:9": 21/9,    # ~2.33 (ultrawide)
-        }
-        
-        # Find closest match
         closest_ratio = "1:1"
         min_diff = float('inf')
-        
         for ratio_str, ratio_val in ratio_values.items():
             diff = abs(actual_ratio - ratio_val)
             if diff < min_diff:
                 min_diff = diff
                 closest_ratio = ratio_str
-        
         print(f"[AspectRatio] Image size: {width}x{height}, ratio: {actual_ratio:.2f}, closest: {closest_ratio}")
         return closest_ratio
+    
+    try:
+        # Decode base64 to bytes
+        image_data = base64.b64decode(image_base64)
         
-    except ImportError:
-        print("[AspectRatio] PIL not available, defaulting to 1:1")
-        return "1:1"
+        # Try PIL first
+        try:
+            from PIL import Image
+            img = Image.open(BytesIO(image_data))
+            width, height = img.size
+            return find_closest_ratio(width, height)
+        except ImportError:
+            print("[AspectRatio] PIL not available, trying manual parsing...")
+        
+        # Fallback: Parse image headers manually (works for PNG and JPEG)
+        # PNG: width at bytes 16-20, height at bytes 20-24 (big-endian)
+        if image_data[:8] == b'\x89PNG\r\n\x1a\n':
+            width = int.from_bytes(image_data[16:20], 'big')
+            height = int.from_bytes(image_data[20:24], 'big')
+            return find_closest_ratio(width, height)
+        
+        # JPEG: Need to find SOF0 marker (0xFF 0xC0) and read dimensions
+        if image_data[:2] == b'\xff\xd8':  # JPEG magic bytes
+            i = 2
+            while i < len(image_data) - 10:
+                if image_data[i] == 0xFF:
+                    marker = image_data[i+1]
+                    # SOF0, SOF1, SOF2 markers contain dimensions
+                    if marker in (0xC0, 0xC1, 0xC2):
+                        height = int.from_bytes(image_data[i+5:i+7], 'big')
+                        width = int.from_bytes(image_data[i+7:i+9], 'big')
+                        return find_closest_ratio(width, height)
+                    elif marker == 0xD9:  # EOI
+                        break
+                    elif marker not in (0x00, 0x01, 0xD0, 0xD1, 0xD2, 0xD3, 0xD4, 0xD5, 0xD6, 0xD7, 0xD8):
+                        # Skip to next marker
+                        length = int.from_bytes(image_data[i+2:i+4], 'big')
+                        i += length + 2
+                        continue
+                i += 1
+        
+        print("[AspectRatio] Could not parse image dimensions, defaulting to 9:16")
+        return "9:16"  # Default to portrait for ambassador photos
+        
     except Exception as e:
-        print(f"[AspectRatio] Error detecting aspect ratio: {e}, defaulting to 1:1")
-        return "1:1"
+        print(f"[AspectRatio] Error detecting aspect ratio: {e}, defaulting to 9:16")
+        return "9:16"  # Default to portrait for ambassador photos
 
 
 # Transformation steps configuration - FEMALE
