@@ -82,7 +82,6 @@ Technical requirements:
             image_base64 = generate_image(
                 prompt=prompt,
                 reference_images=reference_images if reference_images else None,
-                aspect_ratio="1:1",
                 image_size="1K"
             )
         except Exception as api_error:

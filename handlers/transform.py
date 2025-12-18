@@ -219,7 +219,7 @@ def get_transformation_steps(gender='female'):
     return TRANSFORMATION_STEPS_FEMALE
 
 
-def call_replicate_api_sync(image_base64, prompt, aspect_ratio="1:1"):
+def call_replicate_api_sync(image_base64, prompt):
     """
     Call Replicate API as fallback for image transformation.
     This is SYNCHRONOUS - waits for result (up to 120 seconds).
@@ -228,7 +228,7 @@ def call_replicate_api_sync(image_base64, prompt, aspect_ratio="1:1"):
     if not REPLICATE_API_KEY:
         raise Exception("REPLICATE_API_KEY not configured for fallback")
     
-    print(f"Using Replicate fallback for transformation (aspect_ratio={aspect_ratio})...")
+    print(f"Using Replicate fallback for transformation...")
     
     headers = {
         "Authorization": f"Bearer {REPLICATE_API_KEY}",
@@ -243,7 +243,6 @@ def call_replicate_api_sync(image_base64, prompt, aspect_ratio="1:1"):
         "input": {
             "prompt": prompt,
             "image": image_data_uri,
-            "aspect_ratio": aspect_ratio,
             "output_format": "png",
             "safety_tolerance": 2
         }
@@ -282,34 +281,24 @@ def call_replicate_api_sync(image_base64, prompt, aspect_ratio="1:1"):
         raise
 
 
-def call_nano_banana_api(image_base64, prompt, use_fallback=True, preserve_aspect_ratio=True):
-    """Call Gemini API for image transformation with Vertex AI + Replicate fallback
+def call_nano_banana_api(image_base64, prompt, use_fallback=True):
+    """Call Gemini API for image transformation with Replicate fallback
     
-    Uses gemini_client which handles:
-    1. Google AI Studio (primary)
-    2. Vertex AI (fallback when quota exceeded)
-    3. If both fail, falls back to Replicate
+    Uses gemini_client which handles model fallback automatically.
+    If Gemini fails, falls back to Replicate.
     
     Args:
         image_base64: Base64-encoded source image
         prompt: Transformation prompt
         use_fallback: Whether to use Replicate as final fallback
-        preserve_aspect_ratio: Whether to preserve original image aspect ratio
     """
     
-    # Detect aspect ratio from source image if needed
-    if preserve_aspect_ratio:
-        aspect_ratio = detect_image_aspect_ratio(image_base64)
-    else:
-        aspect_ratio = "1:1"
-    
-    # Try Gemini (with automatic Vertex AI fallback via gemini_client)
+    # Try Gemini (with automatic model fallback via gemini_client)
     try:
-        print(f"Calling Gemini for transformation (with Vertex AI fallback), aspect_ratio={aspect_ratio}...")
+        print(f"Calling Gemini for transformation...")
         result = gemini_generate_image(
             prompt=prompt,
             reference_images=[image_base64],
-            aspect_ratio=aspect_ratio,
             image_size="1K"
         )
         
@@ -329,10 +318,10 @@ def call_nano_banana_api(image_base64, prompt, use_fallback=True, preserve_aspec
         else:
             raise
     
-    # Fallback to Replicate (pass the same aspect ratio)
+    # Fallback to Replicate
     if use_fallback and REPLICATE_API_KEY:
-        print(f"Attempting Replicate fallback for transformation (aspect_ratio={aspect_ratio})...")
-        return call_replicate_api_sync(image_base64, prompt, aspect_ratio)
+        print(f"Attempting Replicate fallback for transformation...")
+        return call_replicate_api_sync(image_base64, prompt)
     
     raise Exception("All image generation APIs failed or not configured")
 
@@ -951,7 +940,6 @@ def call_nano_banana_pro_profile(image_base64, prompt):
         result = gemini_generate_image(
             prompt=prompt,
             reference_images=[image_base64],
-            aspect_ratio="1:1",
             image_size="1K"
         )
         

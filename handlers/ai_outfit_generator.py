@@ -393,7 +393,6 @@ LAYOUT:
             image_base64_result = generate_image(
                 prompt=prompt,
                 reference_images=reference_images_base64[:3] if reference_images_base64 else None,
-                aspect_ratio="1:1",
                 image_size="1K"
             )
         except Exception as api_error:

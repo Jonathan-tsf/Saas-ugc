@@ -639,7 +639,6 @@ ABSOLUTE RULE - ZERO TEXT:
         image_base64 = gemini_generate_image(
             prompt=prompt,
             reference_images=reference_images,
-            aspect_ratio="9:16",
             image_size="2K"
         )
         

@@ -282,7 +282,6 @@ def generate_conversion_image(event):
             image_base64_result = generate_image(
                 prompt=prompt,
                 reference_images=[image_base64],
-                aspect_ratio="1:1",
                 image_size="1K"
             )
         except Exception as api_error:

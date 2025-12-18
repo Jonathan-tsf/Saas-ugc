@@ -73,7 +73,6 @@ Generate a professional fashion photo in portrait orientation (9:16 aspect ratio
             result = gemini_generate_image(
                 prompt=prompt,
                 reference_images=[profile_image_base64, outfit_image_base64],
-                aspect_ratio="9:16",
                 image_size="2K"
             )
             
