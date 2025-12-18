@@ -290,6 +290,8 @@ def generate_image(
         }
     }
     
+    print(f"[GeminiClient] Generating image with aspect_ratio={aspect_ratio}, image_size={image_size}")
+    
     errors = []
     
     # Try Google AI Studio first (primary)
