@@ -86,26 +86,31 @@ def generate_video_prompt_with_bedrock(image_url: str, scene_context: str = "") 
     """
     model_id = "global.anthropic.claude-sonnet-4-5-20250929-v1:0"
     
-    system_prompt = """Tu analyses une image et décris l'action CONCRETE que la personne fait.
-Ton output sera utilisé pour générer une vidéo IA de 5 secondes qui continue cette action.
+    system_prompt = """Tu analyses une image et décris l'action que la personne fait.
+Ton output sera utilisé pour générer une vidéo IA de 5 SECONDES.
 
-RÈGLES STRICTES:
-1. Décris l'ACTION PHYSIQUE PRÉCISE (pas "subtle movement" ou descriptions vagues)
-2. Une seule phrase COURTE et DYNAMIQUE
-3. Utilise des VERBES D'ACTION concrets
-4. Si la personne fait du sport: décris le mouvement spécifique (répétitions, course, etc.)
-5. Si la personne marche/sort: "marche rapidement" ou "sort en marchant"
-6. JAMAIS de descriptions passives ou "fait un mouvement subtil"
+RÈGLE CRITIQUE: L'action doit être RÉALISABLE en 5 secondes maximum!
 
-EXEMPLES:
-- Biceps curl -> "La personne fait 3 répétitions de biceps curl"
-- Sortie gym -> "La personne sort rapidement en marchant"
-- Running -> "La personne continue de courir sur le tapis"
-- Phone -> "La personne scroll rapidement sur son téléphone"
-- Cuisine -> "La personne remue énergiquement dans la poêle"
-- Typing -> "La personne tape rapidement sur le clavier"
-- Pose mode -> "La personne tourne légèrement et sourit"
-- Standing -> "La personne fait quelques pas en avant"
+ACTIONS AUTORISÉES (réalistes en 5 sec):
+- Sport: "UNE répétition lente" ou "maintient la position" ou "continue le mouvement"
+- Marche: "fait 2-3 pas" ou "avance légèrement"
+- Phone: "scroll doucement" ou "tape un message"
+- Cuisine: "remue une fois" ou "coupe un ingrédient"
+- Pose: "tourne la tête" ou "sourit à la caméra" ou "ajuste sa tenue"
+- Debout: "fait un pas en avant" ou "regarde autour"
+
+INTERDIT (trop long pour 5 sec):
+- "3 répétitions" -> utilise "une répétition lente"
+- "court pendant..." -> utilise "continue de courir"
+- "fait plusieurs..." -> utilise "fait un/une..."
+
+EXEMPLES CORRECTS:
+- Biceps curl -> "La personne fait une répétition lente de biceps curl"
+- Squat -> "La personne maintient sa position de squat"
+- Running -> "La personne continue de courir"
+- Sortie -> "La personne fait quelques pas vers la sortie"
+- Phone -> "La personne scroll sur son téléphone"
+- Pose -> "La personne sourit et tourne légèrement la tête"
 
 Réponds UNIQUEMENT avec le JSON demandé."""
 
@@ -121,21 +126,19 @@ Réponds UNIQUEMENT avec le JSON demandé."""
         elif ".webp" in image_url.lower():
             media_type = "image/webp"
         
-        user_prompt = """Analyse cette image. Quelle ACTION PHYSIQUE CONCRETE fait la personne?
+        user_prompt = """Analyse cette image. Quelle action fait la personne?
 
-Règles:
-- Décris le MOUVEMENT précis (pas de description vague)
-- UNE phrase courte et dynamique
-- Verbes d'action: court, fait, soulève, marche, tape, scroll, remue, etc.
+RAPPEL: La vidéo dure 5 SECONDES, donc l'action doit être simple et courte!
 
 Réponds UNIQUEMENT en JSON valide:
-{"action": "La personne [verbe d'action] [détail concret]"}
+{"action": "La personne [action réalisable en 5 sec]"}
 
-Exemples:
-{"action": "La personne fait 3 répétitions de biceps curl"}
-{"action": "La personne sort rapidement du bâtiment"}
+Bons exemples (réalistes en 5 sec):
+{"action": "La personne fait une répétition lente de biceps curl"}
+{"action": "La personne fait quelques pas vers la sortie"}
 {"action": "La personne scroll sur son téléphone"}
-{"action": "La personne court sur le tapis roulant"}"""
+{"action": "La personne continue de courir"}
+{"action": "La personne sourit et tourne la tête"}"""
 
         request_body = {
             "anthropic_version": "bedrock-2023-05-31",
