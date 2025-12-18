@@ -382,33 +382,32 @@ def get_hero_videos(event):
     """Get random showcase videos for hero section - GET /api/hero-videos
     
     Returns a diversified selection of showcase videos:
-    - Only from ambassadors who are NOT hasBeenChosen (not attributed)
+    - From ALL ambassadors (including attributed ones) for maximum content
     - Diversified by gender (alternate male/female)
     - Diversified semantically by scene type (uses prompt analysis)
     - Returns random selection each time
     
     Query params:
-    - count: number of videos to return (default: 6, max: 12)
+    - count: number of videos to return (default: 6, max: 24)
     """
     import random
     import re
     
     params = event.get('queryStringParameters', {}) or {}
-    requested_count = min(int(params.get('count', 6)), 12)
+    requested_count = min(int(params.get('count', 6)), 24)  # Increased max to 24
     
     try:
         # Get all ambassadors
         scan_response = ambassadors_table.scan()
         all_ambassadors = [decimal_to_python(item) for item in scan_response.get('Items', [])]
         
-        # Collect all videos from non-attributed ambassadors
+        # Collect all videos from ALL ambassadors (not just non-attributed)
         male_videos = []
         female_videos = []
         
         for amb in all_ambassadors:
-            # Skip attributed ambassadors
-            if amb.get('hasBeenChosen', False):
-                continue
+            # Include ALL ambassadors for hero videos
+            # (removed hasBeenChosen filter to show more content)
             
             # Get showcase videos
             showcase_videos = amb.get('showcase_videos', [])
