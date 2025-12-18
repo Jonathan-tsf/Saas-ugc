@@ -396,10 +396,14 @@ def get_hero_videos(event):
     params = event.get('queryStringParameters', {}) or {}
     requested_count = min(int(params.get('count', 6)), 24)  # Increased max to 24
     
+    print(f"[HERO_VIDEOS] Requested count: {requested_count}")
+    
     try:
         # Get all ambassadors
         scan_response = ambassadors_table.scan()
         all_ambassadors = [decimal_to_python(item) for item in scan_response.get('Items', [])]
+        
+        print(f"[HERO_VIDEOS] Total ambassadors found: {len(all_ambassadors)}")
         
         # Collect all videos from ALL ambassadors (not just non-attributed)
         male_videos = []
@@ -411,6 +415,8 @@ def get_hero_videos(event):
             
             # Get showcase videos
             showcase_videos = amb.get('showcase_videos', [])
+            if showcase_videos:
+                print(f"[HERO_VIDEOS] Ambassador {amb.get('name', 'Unknown')} has {len(showcase_videos)} videos")
             gender = amb.get('gender', 'other')
             
             for video in showcase_videos:
@@ -469,6 +475,8 @@ def get_hero_videos(event):
         
         # Final shuffle to randomize the order
         random.shuffle(selected_videos)
+        
+        print(f"[HERO_VIDEOS] Returning {len(selected_videos)} videos (male: {len(male_videos)}, female: {len(female_videos)})")
         
         return response(200, {
             'videos': selected_videos,
