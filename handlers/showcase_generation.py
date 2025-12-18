@@ -209,6 +209,163 @@ def get_outfit_image_for_category(ambassador, category):
     return None
 
 
+def detect_niche(products, outfit_categories):
+    """
+    Detect the niche/universe based on products and outfit categories.
+    Returns: 'fitness', 'tech', 'beauty', 'food', 'fashion', 'lifestyle', 'business', etc.
+    """
+    if not products:
+        # Infer from outfit categories
+        if any(cat in outfit_categories for cat in ['fitness', 'sport', 'gym', 'athletic']):
+            return 'fitness'
+        elif any(cat in outfit_categories for cat in ['business', 'formal', 'professional']):
+            return 'business'
+        elif any(cat in outfit_categories for cat in ['casual', 'streetwear']):
+            return 'lifestyle'
+        return 'lifestyle'  # Default
+    
+    # Keywords to detect niche from product names/descriptions/categories
+    niche_keywords = {
+        'fitness': ['protein', 'whey', 'bcaa', 'creatine', 'pre-workout', 'gym', 'fitness', 'sport', 'workout', 'muscle', 'shaker', 'supplement', 'training'],
+        'tech': ['app', 'software', 'saas', 'mobile', 'phone', 'laptop', 'tech', 'digital', 'ai', 'device', 'gadget', 'headphone', 'earbuds', 'watch', 'smartwatch'],
+        'beauty': ['skincare', 'makeup', 'cosmetic', 'serum', 'cream', 'beauty', 'hair', 'nail', 'parfum', 'fragrance', 'lotion', 'moisturizer'],
+        'food': ['food', 'snack', 'drink', 'beverage', 'coffee', 'tea', 'chocolate', 'healthy', 'organic', 'vegan', 'bar', 'energy'],
+        'fashion': ['clothing', 'fashion', 'wear', 'dress', 'shoes', 'accessory', 'bag', 'jewelry', 'watch', 'sunglasses'],
+        'wellness': ['wellness', 'meditation', 'yoga', 'mindfulness', 'sleep', 'relax', 'aromatherapy', 'candle', 'essential oil'],
+        'business': ['course', 'coaching', 'ebook', 'formation', 'business', 'entrepreneur', 'marketing', 'consulting']
+    }
+    
+    # Count matches for each niche
+    niche_scores = {niche: 0 for niche in niche_keywords}
+    
+    for product in products:
+        product_text = f"{product.get('name', '')} {product.get('description', '')} {product.get('category', '')}".lower()
+        for niche, keywords in niche_keywords.items():
+            for keyword in keywords:
+                if keyword in product_text:
+                    niche_scores[niche] += 1
+    
+    # Return highest scoring niche, default to 'lifestyle'
+    best_niche = max(niche_scores, key=niche_scores.get)
+    if niche_scores[best_niche] == 0:
+        return 'lifestyle'
+    return best_niche
+
+
+def get_niche_scene_suggestions(niche):
+    """
+    Get scene suggestions specific to the detected niche.
+    Returns a string with niche-specific scene types and examples.
+    """
+    niche_scenes = {
+        'fitness': """
+=== UNIVERS FITNESS/SPORT ===
+SCÈNES OBLIGATOIRES À INCLURE:
+- 💪 ACTION FITNESS (4-5 photos): Squat, deadlift, curl, push-up, planche, treadmill, stretching
+- 🏋️ GYM LIFESTYLE (2-3 photos): Entrée gym, pause eau/shake, repos banc, miroir check posture
+- 🥗 NUTRITION (2-3 photos): Prépare smoothie/shake, meal prep, verse poudre protéine
+- 📦 PRODUCT (2-3 photos): Unboxing, tient shaker/pot, verse dose, secoue shaker
+- 🎯 HOOK/TALKING (3-4 photos): Face caméra motivation, avant/après workout
+
+DÉCORS: Salle de gym moderne, cuisine healthy, salon épuré, extérieur urbain
+AMBIANCE: Motivation, discipline, transformation, énergie, healthy lifestyle
+""",
+        'tech': """
+=== UNIVERS TECH/APP/DIGITAL ===
+SCÈNES OBLIGATOIRES À INCLURE:
+- 📱 PHONE USAGE (3-4 photos): Scroll téléphone, montre écran face cam, tape message, notification reaction
+- 💻 WORK SETUP (2-3 photos): Devant laptop concentré, setup bureau aesthetic, travail café
+- 🎧 DEVICE USE (2-3 photos): Porte écouteurs/casque, utilise smartwatch, check notification
+- 📦 PRODUCT (2-3 photos): Unboxing tech, montre device face cam, utilisation naturelle
+- 🎯 HOOK/TALKING (3-4 photos): Face caméra réaction, explique quelque chose, "check this out"
+- 🛋️ LIFESTYLE (2-3 photos): Canapé chill avec phone, café + phone, balcon scroll
+
+DÉCORS: Bureau minimaliste moderne, café trendy, salon cozy, espace coworking
+AMBIANCE: Productivité, innovation, connected life, modern lifestyle
+""",
+        'beauty': """
+=== UNIVERS BEAUTY/SKINCARE ===
+SCÈNES OBLIGATOIRES À INCLURE:
+- 💄 ROUTINE (3-4 photos): Applique produit visage, skincare routine salle de bain, miroir application
+- 🪞 MIRROR (2-3 photos): Devant miroir application, check résultat, self-care moment
+- 📦 PRODUCT (3-4 photos): Unboxing packaging luxe, tient produit près visage, texture close-up, application
+- 🛁 BATHROOM (2-3 photos): Routine matinale, salle de bain épurée, lavabo avec produits
+- 🎯 HOOK/TALKING (2-3 photos): Face caméra glow, montre peau, before/after expression
+- 🛋️ LIFESTYLE (2-3 photos): Robe de chambre relax, self-care evening, moment cocooning
+
+DÉCORS: Salle de bain lumineuse épurée, chambre cozy, vanity setup, salon zen
+AMBIANCE: Self-care, glow, routine, natural beauty, wellness, pamper
+""",
+        'food': """
+=== UNIVERS FOOD/BOISSONS ===
+SCÈNES OBLIGATOIRES À INCLURE:
+- 🍳 PREPARATION (3-4 photos): Cuisine active, verse ingrédients, mixe/blend, prépare recette
+- 🍽️ EATING/DRINKING (2-3 photos): Goûte produit, boit boisson, moment dégustation
+- 📦 PRODUCT (2-3 photos): Unboxing food, tient produit, ouvre packaging, verse/sert
+- 🛒 KITCHEN (2-3 photos): Prend du frigo, range courses, cuisine organisée
+- 🎯 HOOK/TALKING (2-3 photos): Face caméra reaction goût, recommande produit, "you need to try this"
+- ☕ LIFESTYLE (2-3 photos): Café morning, snack break, moment détente avec produit
+
+DÉCORS: Cuisine moderne lumineuse, table à manger, comptoir breakfast, café/restaurant
+AMBIANCE: Healthy eating, foodie, délicieux, homemade, cozy kitchen vibes
+""",
+        'fashion': """
+=== UNIVERS FASHION/MODE ===
+SCÈNES OBLIGATOIRES À INCLURE:
+- 👗 OUTFIT SHOWCASE (3-4 photos): Pose full body, détail vêtement, accessoire focus
+- 🪞 MIRROR (2-3 photos): Mirror selfie style (téléphone pas visible), check outfit, styling
+- 📦 PRODUCT (2-3 photos): Unboxing vêtement/accessoire, découvre pièce, essayage reaction
+- 🚶 LIFESTYLE (3-4 photos): Marche urbaine, café trendy, sortie shopping, street style
+- 🎯 HOOK/TALKING (2-3 photos): Face caméra confident, haul intro, "obsessed with this"
+- 🏠 HOME (2-3 photos): Dressing room, getting ready, outfit of the day
+
+DÉCORS: Rue urbaine trendy, café aesthetic, appartement moderne, dressing organisé
+AMBIANCE: Chic, trendy, style, confident, street style, aesthetic
+""",
+        'wellness': """
+=== UNIVERS WELLNESS/BIEN-ÊTRE ===
+SCÈNES OBLIGATOIRES À INCLURE:
+- 🧘 PRACTICE (3-4 photos): Yoga pose, méditation assise, stretching, respiration
+- 🛁 SELF-CARE (2-3 photos): Bain relaxant, masque, moment cocooning, lecture calme
+- 📦 PRODUCT (2-3 photos): Unboxing zen, utilise produit (huile, bougie, etc.), application calme
+- 🌅 MOMENTS (2-3 photos): Morning routine slow, sunset balcon, journaling
+- 🎯 HOOK/TALKING (2-3 photos): Face caméra sereine, partage conseil, moment authentique
+- 🏠 HOME (2-3 photos): Coin zen maison, tapis yoga, ambiance cozy
+
+DÉCORS: Espace zen lumineux, chambre épurée, balcon nature, salon cozy minimaliste
+AMBIANCE: Zen, peaceful, mindful, slow living, self-care, inner peace
+""",
+        'business': """
+=== UNIVERS BUSINESS/ENTREPRENEUR ===
+SCÈNES OBLIGATOIRES À INCLURE:
+- 💻 WORK (3-4 photos): Devant laptop concentré, meeting call, prend notes, brainstorm
+- 📚 LEARNING (2-3 photos): Lit/étudie contenu, notebook ouvert, formation/cours
+- 📦 PRODUCT (2-3 photos): Montre ebook/cours sur écran, présente offre, testimonial style
+- ☕ LIFESTYLE (2-3 photos): Café + travail, coworking vibes, morning routine productive
+- 🎯 HOOK/TALKING (3-4 photos): Face caméra confiant, explique concept, "let me show you"
+- 📱 CONTENT (2-3 photos): Crée contenu, phone pour filmer, setup créateur
+
+DÉCORS: Bureau home office épuré, café/coworking, setup minimaliste, espace lumineux
+AMBIANCE: Productivité, succès, hustle, growth mindset, entrepreneur life
+""",
+        'lifestyle': """
+=== UNIVERS LIFESTYLE GÉNÉRAL ===
+SCÈNES OBLIGATOIRES À INCLURE:
+- 🏠 HOME LIFE (3-4 photos): Salon cozy, cuisine moment, routine quotidienne
+- 📱 DIGITAL (2-3 photos): Scroll téléphone, check notifications, message
+- 📦 PRODUCT (2-3 photos): Unboxing, découverte produit, utilisation naturelle
+- 🚶 OUTDOOR (2-3 photos): Marche urbaine, café terrasse, parc/nature
+- 🎯 HOOK/TALKING (3-4 photos): Face caméra authentique, partage expérience, recommandation
+- ☕ MOMENTS (2-3 photos): Morning coffee, evening chill, self-care moment
+
+DÉCORS: Appartement moderne, café trendy, rue urbaine, espaces lumineux
+AMBIANCE: Authentique, relatable, everyday luxury, modern life, genuine
+"""
+    }
+    
+    return niche_scenes.get(niche, niche_scenes['lifestyle'])
+
+
 def generate_scene_descriptions_with_claude(available_categories, ambassador_gender, ambassador_description="", products=None, product_placements=None):
     """
     Use AWS Bedrock Claude to generate scene descriptions.
@@ -222,6 +379,10 @@ def generate_scene_descriptions_with_claude(available_categories, ambassador_gen
     categories_str = ", ".join(available_categories)
     gender_pronoun = "il" if ambassador_gender == "male" else "elle"
     gender_article = "un homme" if ambassador_gender == "male" else "une femme"
+    
+    # Detect niche/universe based on products and outfit categories
+    niche = detect_niche(products, available_categories)
+    niche_context = get_niche_scene_suggestions(niche)
     
     # Build product context if products exist
     product_context = ""
@@ -281,98 +442,62 @@ PROFIL DE L'AMBASSADEUR:
 Utilise ce profil pour adapter le style et l'ambiance des scènes à la personnalité de l'ambassadeur.
 """
     
-    system_prompt = f"""Tu es un EXPERT en création de contenu TikTok et Instagram Reels pour des marques fitness/lifestyle.
+    system_prompt = f"""Tu es un EXPERT en création de contenu TikTok et Instagram Reels.
 
 OBJECTIF: Générer 15 scènes UNIQUES et DIVERSIFIÉES pour un ambassadeur UGC. Ces images seront utilisées pour créer des Reels viraux.
+
+NICHE DÉTECTÉE: {niche.upper()}
+{niche_context}
 {ambassador_context}{product_context}
 
 === RÈGLES FONDAMENTALES TIKTOK/REELS ===
 
 1. DIVERSITÉ OBLIGATOIRE - Chaque scène doit être UNIQUE:
-   - JAMAIS deux scènes similaires (pas 2x miroir gym, pas 2x assis canapé, etc.)
+   - JAMAIS deux scènes similaires (pas 2x même pose, pas 2x même lieu)
    - Varier: positions (debout/assis/en mouvement), lieux, actions, angles
    
-2. TYPES DE SCÈNES À INCLURE (mix obligatoire sur 15 photos):
-   - 2-3 HOOK SHOTS: Face caméra accrocheuse pour les intros TikTok
-   - 2-3 PRODUCT SHOTS: Unboxing, produit en main, utilisation du produit
-   - 3-4 ACTION FITNESS: Exercices variés (squat, curl, deadlift, cardio, stretching)
-   - 2-3 LIFESTYLE: Cuisine, nutrition, préparation repas
-   - 3-4 B-ROLL CLIPS: Moments naturels (entrée gym, marche, pause eau, balcon)
+2. COHÉRENCE AVEC LA NICHE:
+   - Reste dans l'univers {niche.upper()} détecté
+   - Les scènes doivent correspondre aux produits et à l'ambiance de la marque
+   - Adapte les décors, actions et ambiances à cette niche
 
 3. INTÉGRATION PRODUIT INTELLIGENTE:
    - Le produit n'est PAS dans TOUTES les photos (seulement 30-50%)
-   - Scènes AVEC produit: unboxing, tenir le produit, utiliser le produit (shake, etc.)
-   - Scènes SANS produit: exercices, lifestyle, talking head (l'univers reste cohérent)
+   - Scènes AVEC produit: unboxing, tenir le produit, utilisation naturelle
+   - Scènes SANS produit: lifestyle cohérent avec la niche (l'univers reste le même)
 
-4. COHÉRENCE MARQUE FITNESS/WELLNESS:
-   - Même sans produit visible, l'univers reste fitness/health/lifestyle
-   - Décors: gym moderne, cuisine healthy, intérieur épuré moderne
-   - Ambiance: motivation, discipline, bien-être, authenticité
-
-5. REGARD ET EXPRESSION:
+4. REGARD ET EXPRESSION:
    - Face caméra: UNIQUEMENT pour hook shots et talking head (max 5/15)
-   - Autres scènes: regard sur l'action (exercice, produit, téléphone, etc.)
-   - Expressions: concentré, déterminé, confiant, serein (PAS d'exagération)
+   - Autres scènes: regard sur l'action (produit, activité, téléphone, etc.)
+   - Expressions: concentré, confiant, serein, authentique (PAS d'exagération)
 
-6. PAS DE SCÈNES INUTILES:
-   - ❌ Assis à un bureau d'ordinateur (pas fitness)
-   - ❌ Debout immobile devant miroir (ennuyeux)
-   - ❌ Lecture de livre (pas dynamique)
-   - ❌ Regarder par la fenêtre (pas d'action)
-   - ✅ En train de FAIRE quelque chose d'actionnable
+5. PAS DE SCÈNES GÉNÉRIQUES INUTILISABLES:
+   - ❌ Debout immobile sans action
+   - ❌ Scènes qui ne correspondent pas à la niche
+   - ❌ Poses statiques ennuyeuses
+   - ✅ En train de FAIRE quelque chose de spécifique à la niche
 
 La personne est {gender_article}.
 Catégories de tenues disponibles: {categories_str}
-
+{product_instructions}
 RÈGLE ABSOLUE - ZÉRO TEXTE VISIBLE:
 - Aucun texte, logo, marque, chiffre dans l'image
-- Poids de gym sans valeurs visibles
-- Écrans vides ou couleurs abstraites
+- Écrans vides ou couleurs abstraites si visibles
 
 IMPORTANT: Tu dois UNIQUEMENT répondre avec un JSON valide, sans aucun texte avant ou après."""
 
-    user_prompt = f"""Génère 15 descriptions de scènes UNIQUES et DIVERSIFIÉES pour un ambassadeur UGC fitness/lifestyle.
+    user_prompt = f"""Génère 15 descriptions de scènes UNIQUES pour un ambassadeur UGC dans la niche {niche.upper()}.
 
 Catégories de tenues disponibles: {categories_str}
 
-=== EXEMPLES DE SCÈNES (inspire-toi mais ne copie pas) ===
-{FEW_SHOT_EXAMPLES}
-
-=== DISTRIBUTION OBLIGATOIRE SUR 15 PHOTOS ===
-Tu DOIS inclure EXACTEMENT ce mix de scènes:
-
-🎯 HOOK SHOTS (2-3 photos) - Face caméra, scroll-stopping:
-- Expression intriguée/confiante, regard caméra direct
-- Pour intros TikTok "wait for it" ou "let me tell you"
-
-📦 PRODUCT SHOTS (3-4 photos si produits disponibles):
-- Unboxing: ouvre une boîte, découvre le produit
-- Product hold: tient le produit devant soi, le présente
-- Product use: utilise le produit (secoue shaker, ouvre pot, etc.)
-- Close-up: produit en premier plan, visage flou derrière
-
-💪 FITNESS ACTION (4-5 photos):
-- Exercices VARIÉS: squat, deadlift, curl, push-up, planche, treadmill
-- PAS de poses statiques miroir - du MOUVEMENT
-- Regard sur l'exercice, expression concentrée/effort
-
-🥗 KITCHEN/NUTRITION (2-3 photos):
-- Prépare smoothie/shake protéiné
-- Meal prep, prend quelque chose du frigo
-- Verse ingrédients, regarde ce qu'on fait
-
-🎬 B-ROLL/LIFESTYLE (3-4 photos):
-- Entre dans la gym (bag sur l'épaule)
-- Pause hydratation (boit eau/shake)
-- Marche outdoor, stretch matinal
-- Talking head casual (pour voiceover)
+{niche_context}
 
 === FORMAT JSON REQUIS ===
-Réponds UNIQUEMENT avec ce JSON (sans markdown):
+Réponds UNIQUEMENT avec ce JSON (sans markdown, sans ```):
 {{
     "picture_1": {{
         "position": "Scène [type]: Description détaillée 50+ mots avec décor, pose, action, regard, expression, ambiance...",
-        "outfit_category": "fitness",
+        "outfit_category": "{available_categories[0] if available_categories else 'casual'}",
         "has_product": false,
         "product_name": null
     }},
@@ -381,12 +506,13 @@ Réponds UNIQUEMENT avec ce JSON (sans markdown):
 
 === CHECKLIST ANTI-RÉPÉTITION ===
 Avant de finaliser, vérifie:
-❌ Pas 2 scènes "devant miroir"
-❌ Pas 2 scènes "assis au bureau"
-❌ Pas 2 scènes identiques (même pose + même lieu)
-✅ Mix varié de positions: debout, assis, en mouvement, au sol
-✅ Mix varié de lieux: gym, cuisine, salon, extérieur
-✅ Mix varié d'actions: exercice, prépare, tient produit, parle caméra"""
+❌ Pas 2 scènes avec la même pose
+❌ Pas 2 scènes dans le même lieu exact
+❌ Pas de scènes génériques inutilisables
+✅ Mix varié de positions: debout, assis, en mouvement
+✅ Mix varié de lieux adaptés à la niche {niche}
+✅ Mix varié d'actions: utilise produit, parle caméra, activité niche
+✅ Chaque scène est ACTIONNABLE pour un Reel TikTok"""
 
     try:
         request_body = {
@@ -1534,4 +1660,387 @@ def poll_scene_replicate(event):
         'all_completed': all_completed,
         'generated_images': generated_urls,
         'scene': decimal_to_python(scene)
+    })
+
+
+def edit_showcase_photo(event):
+    """
+    Edit a showcase photo using Nano Banana Pro with a custom prompt and optional reference images.
+    POST /api/admin/ambassadors/showcase/edit
+    
+    Body: {
+        ambassador_id: string,
+        scene_id: string,
+        image_url: string,           # Current image to edit
+        edit_prompt: string,         # User's edit instructions
+        reference_images: [          # Optional reference images (outfits or products)
+            { type: 'outfit'|'product', id: string, image_url: string }
+        ]
+    }
+    
+    Returns: { success, edited_image_url } - The edited image URL for preview
+    """
+    if not verify_admin(event):
+        return response(401, {'error': 'Unauthorized'})
+    
+    try:
+        body = json.loads(event.get('body', '{}'))
+    except:
+        return response(400, {'error': 'Invalid JSON body'})
+    
+    ambassador_id = body.get('ambassador_id')
+    scene_id = body.get('scene_id')
+    image_url = body.get('image_url')
+    edit_prompt = body.get('edit_prompt', '')
+    reference_images = body.get('reference_images', [])
+    
+    if not all([ambassador_id, scene_id, image_url]):
+        return response(400, {'error': 'ambassador_id, scene_id, and image_url required'})
+    
+    if not edit_prompt:
+        return response(400, {'error': 'edit_prompt is required'})
+    
+    # Get ambassador
+    try:
+        result = ambassadors_table.get_item(Key={'id': ambassador_id})
+        ambassador = result.get('Item')
+        if not ambassador:
+            return response(404, {'error': 'Ambassador not found'})
+    except Exception as e:
+        return response(500, {'error': f'Failed to get ambassador: {str(e)}'})
+    
+    # Find the scene
+    showcase_photos = ambassador.get('showcase_photos', [])
+    scene = None
+    scene_index = -1
+    
+    for i, photo in enumerate(showcase_photos):
+        if photo.get('scene_id') == scene_id:
+            scene = photo
+            scene_index = i
+            break
+    
+    if not scene:
+        return response(404, {'error': 'Scene not found'})
+    
+    print(f"Editing showcase photo for scene {scene_id}")
+    print(f"Edit prompt: {edit_prompt}")
+    print(f"Reference images count: {len(reference_images)}")
+    
+    # Get the current image as base64
+    current_image_base64 = get_image_from_s3(image_url)
+    if not current_image_base64:
+        return response(500, {'error': 'Failed to get current image from S3'})
+    
+    # Prepare reference images (outfits and products)
+    reference_images_base64 = []
+    for ref in reference_images[:6]:  # Max 6 reference images
+        ref_url = ref.get('image_url')
+        ref_type = ref.get('type', 'unknown')
+        ref_name = ref.get('name', ref_type)
+        
+        if ref_url:
+            ref_base64 = get_image_from_s3(ref_url)
+            if ref_base64:
+                reference_images_base64.append({
+                    'type': ref_type,
+                    'name': ref_name,
+                    'image_base64': ref_base64
+                })
+                print(f"Added reference image: {ref_type} - {ref_name}")
+    
+    # Build the edit prompt for Nano Banana Pro
+    ref_context = ""
+    if reference_images_base64:
+        ref_descriptions = []
+        for ref in reference_images_base64:
+            ref_descriptions.append(f"- {ref['type'].capitalize()}: {ref['name']}")
+        ref_context = f"""
+
+REFERENCE IMAGES PROVIDED (use these as visual guides):
+{chr(10).join(ref_descriptions)}
+
+When editing, you may use these reference images to:
+- Match the style/color of an outfit
+- Include a product naturally in the scene
+- Transfer visual elements from the references"""
+    
+    full_prompt = f"""Edit the provided image according to these instructions:
+
+{edit_prompt}
+{ref_context}
+
+CRITICAL REQUIREMENTS:
+- Maintain the person's identity (face, body, features) EXACTLY as in the original
+- Apply the requested changes while keeping the overall composition coherent
+- High quality, photo-realistic result
+- Natural lighting that matches the scene
+
+ABSOLUTE RULE - ZERO TEXT:
+- NO text, logos, brands, or numbers should appear in the edited image
+- Keep screens blank or with abstract colors"""
+    
+    try:
+        print(f"Calling Gemini/Nano Banana Pro for edit...")
+        
+        # Build the list of images to send (current image + references)
+        all_images = [current_image_base64]
+        for ref in reference_images_base64:
+            all_images.append(ref['image_base64'])
+        
+        edited_image_base64 = gemini_generate_image(
+            prompt=full_prompt,
+            reference_images=all_images,
+            image_size="2K"
+        )
+        
+        if not edited_image_base64:
+            return response(500, {'error': 'Failed to generate edited image'})
+        
+        # Save the edited image to S3 with a temporary key (pending validation)
+        scene_number = scene.get('scene_number', scene_index + 1)
+        edited_key = f"showcase_photos/{ambassador_id}/edited_{scene_number}_{uuid.uuid4().hex[:8]}.png"
+        
+        edited_url = upload_to_s3(
+            edited_key,
+            base64.b64decode(edited_image_base64),
+            'image/png',
+            cache_days=30
+        )
+        
+        if not edited_url:
+            return response(500, {'error': 'Failed to save edited image to S3'})
+        
+        print(f"Edited image saved: {edited_url}")
+        
+        # Store the pending edit in the scene (don't apply yet)
+        scene['pending_edit'] = {
+            'edited_image_url': edited_url,
+            'original_image_url': image_url,
+            'edit_prompt': edit_prompt,
+            'created_at': datetime.now().isoformat()
+        }
+        
+        showcase_photos[scene_index] = scene
+        
+        try:
+            ambassadors_table.update_item(
+                Key={'id': ambassador_id},
+                UpdateExpression='SET showcase_photos = :photos, updated_at = :updated',
+                ExpressionAttributeValues={
+                    ':photos': showcase_photos,
+                    ':updated': datetime.now().isoformat()
+                }
+            )
+        except Exception as e:
+            print(f"Error saving pending edit: {e}")
+        
+        return response(200, {
+            'success': True,
+            'edited_image_url': edited_url,
+            'original_image_url': image_url,
+            'message': 'Edit generated. Use /showcase/edit/apply to validate or /showcase/edit/reject to discard.'
+        })
+        
+    except Exception as e:
+        print(f"Error editing showcase photo: {e}")
+        import traceback
+        traceback.print_exc()
+        return response(500, {'error': f'Failed to edit image: {str(e)}'})
+
+
+def apply_showcase_edit(event):
+    """
+    Apply (validate) a pending edit to a showcase photo.
+    POST /api/admin/ambassadors/showcase/edit/apply
+    
+    Body: { ambassador_id, scene_id }
+    
+    Replaces the selected_image with the edited image.
+    """
+    if not verify_admin(event):
+        return response(401, {'error': 'Unauthorized'})
+    
+    try:
+        body = json.loads(event.get('body', '{}'))
+    except:
+        return response(400, {'error': 'Invalid JSON body'})
+    
+    ambassador_id = body.get('ambassador_id')
+    scene_id = body.get('scene_id')
+    
+    if not all([ambassador_id, scene_id]):
+        return response(400, {'error': 'ambassador_id and scene_id required'})
+    
+    # Get ambassador
+    try:
+        result = ambassadors_table.get_item(Key={'id': ambassador_id})
+        ambassador = result.get('Item')
+        if not ambassador:
+            return response(404, {'error': 'Ambassador not found'})
+    except Exception as e:
+        return response(500, {'error': f'Failed to get ambassador: {str(e)}'})
+    
+    # Find the scene
+    showcase_photos = ambassador.get('showcase_photos', [])
+    scene = None
+    scene_index = -1
+    
+    for i, photo in enumerate(showcase_photos):
+        if photo.get('scene_id') == scene_id:
+            scene = photo
+            scene_index = i
+            break
+    
+    if not scene:
+        return response(404, {'error': 'Scene not found'})
+    
+    pending_edit = scene.get('pending_edit')
+    if not pending_edit:
+        return response(400, {'error': 'No pending edit found for this scene'})
+    
+    edited_image_url = pending_edit.get('edited_image_url')
+    if not edited_image_url:
+        return response(400, {'error': 'Pending edit has no edited image'})
+    
+    # Apply the edit: update selected_image and add to generated_images
+    old_selected = scene.get('selected_image')
+    
+    scene['selected_image'] = edited_image_url
+    scene['status'] = 'selected'
+    
+    # Add the edited image to generated_images if not already there
+    generated_images = scene.get('generated_images', [])
+    if edited_image_url not in generated_images:
+        generated_images.append(edited_image_url)
+        scene['generated_images'] = generated_images
+    
+    # Store edit history
+    edit_history = scene.get('edit_history', [])
+    edit_history.append({
+        'original_image': pending_edit.get('original_image_url'),
+        'edited_image': edited_image_url,
+        'edit_prompt': pending_edit.get('edit_prompt'),
+        'applied_at': datetime.now().isoformat()
+    })
+    scene['edit_history'] = edit_history
+    
+    # Clear pending edit
+    del scene['pending_edit']
+    
+    showcase_photos[scene_index] = scene
+    
+    try:
+        ambassadors_table.update_item(
+            Key={'id': ambassador_id},
+            UpdateExpression='SET showcase_photos = :photos, updated_at = :updated',
+            ExpressionAttributeValues={
+                ':photos': showcase_photos,
+                ':updated': datetime.now().isoformat()
+            }
+        )
+    except Exception as e:
+        return response(500, {'error': f'Failed to apply edit: {str(e)}'})
+    
+    print(f"Edit applied for scene {scene_id}: {edited_image_url}")
+    
+    return response(200, {
+        'success': True,
+        'scene': decimal_to_python(scene),
+        'message': 'Edit applied successfully'
+    })
+
+
+def reject_showcase_edit(event):
+    """
+    Reject (discard) a pending edit to a showcase photo.
+    POST /api/admin/ambassadors/showcase/edit/reject
+    
+    Body: { ambassador_id, scene_id }
+    
+    Removes the pending edit and keeps the original image.
+    """
+    if not verify_admin(event):
+        return response(401, {'error': 'Unauthorized'})
+    
+    try:
+        body = json.loads(event.get('body', '{}'))
+    except:
+        return response(400, {'error': 'Invalid JSON body'})
+    
+    ambassador_id = body.get('ambassador_id')
+    scene_id = body.get('scene_id')
+    
+    if not all([ambassador_id, scene_id]):
+        return response(400, {'error': 'ambassador_id and scene_id required'})
+    
+    # Get ambassador
+    try:
+        result = ambassadors_table.get_item(Key={'id': ambassador_id})
+        ambassador = result.get('Item')
+        if not ambassador:
+            return response(404, {'error': 'Ambassador not found'})
+    except Exception as e:
+        return response(500, {'error': f'Failed to get ambassador: {str(e)}'})
+    
+    # Find the scene
+    showcase_photos = ambassador.get('showcase_photos', [])
+    scene = None
+    scene_index = -1
+    
+    for i, photo in enumerate(showcase_photos):
+        if photo.get('scene_id') == scene_id:
+            scene = photo
+            scene_index = i
+            break
+    
+    if not scene:
+        return response(404, {'error': 'Scene not found'})
+    
+    pending_edit = scene.get('pending_edit')
+    if not pending_edit:
+        return response(400, {'error': 'No pending edit found for this scene'})
+    
+    # Optionally delete the edited image from S3 to save space
+    edited_url = pending_edit.get('edited_image_url', '')
+    if edited_url and '/edited_' in edited_url:
+        try:
+            # Extract key from URL
+            if 's3.amazonaws.com' in edited_url:
+                key = edited_url.split('.com/')[1]
+            elif 'amazonaws.com' in edited_url:
+                parts = edited_url.split('amazonaws.com/')
+                key = parts[1] if len(parts) > 1 else None
+            else:
+                key = None
+            
+            if key:
+                s3.delete_object(Bucket=S3_BUCKET, Key=key)
+                print(f"Deleted rejected edit from S3: {key}")
+        except Exception as e:
+            print(f"Warning: Could not delete rejected edit from S3: {e}")
+    
+    # Clear pending edit
+    del scene['pending_edit']
+    
+    showcase_photos[scene_index] = scene
+    
+    try:
+        ambassadors_table.update_item(
+            Key={'id': ambassador_id},
+            UpdateExpression='SET showcase_photos = :photos, updated_at = :updated',
+            ExpressionAttributeValues={
+                ':photos': showcase_photos,
+                ':updated': datetime.now().isoformat()
+            }
+        )
+    except Exception as e:
+        return response(500, {'error': f'Failed to reject edit: {str(e)}'})
+    
+    print(f"Edit rejected for scene {scene_id}")
+    
+    return response(200, {
+        'success': True,
+        'scene': decimal_to_python(scene),
+        'message': 'Edit rejected'
     })

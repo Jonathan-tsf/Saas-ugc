@@ -69,7 +69,10 @@ from handlers.showcase_generation import (
     generate_showcase_scenes_async,
     select_showcase_photo,
     generate_scene,
-    poll_scene_replicate
+    poll_scene_replicate,
+    edit_showcase_photo,
+    apply_showcase_edit,
+    reject_showcase_edit,
 )
 
 # Import profile photo generation handlers
@@ -415,6 +418,9 @@ def lambda_handler(event, context):
         ('POST', '/api/admin/ambassadors/showcase/select'): select_showcase_photo,
         ('POST', '/api/admin/ambassadors/showcase/scene'): generate_scene,
         ('POST', '/api/admin/ambassadors/showcase/scene/poll'): poll_scene_replicate,
+        ('POST', '/api/admin/ambassadors/showcase/edit'): edit_showcase_photo,
+        ('POST', '/api/admin/ambassadors/showcase/edit/apply'): apply_showcase_edit,
+        ('POST', '/api/admin/ambassadors/showcase/edit/reject'): reject_showcase_edit,
         
         # Admin profile photo generation (async with polling)
         ('POST', '/api/admin/ambassadors/profile-photos/generate'): start_profile_generation,
