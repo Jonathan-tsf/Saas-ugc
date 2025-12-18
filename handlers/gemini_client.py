@@ -21,13 +21,11 @@ MODELS = [
     {
         'name': 'gemini-3-pro-image-preview',
         'display': 'Nano Banana Pro',
-        'supports_aspect_ratio': True,
         'supports_image_size': True  # Supports 1K, 2K, 4K
     },
     {
         'name': 'gemini-2.5-flash-image',  # Correct model name (not "preview")
         'display': 'Nano Banana (Flash)',
-        'supports_aspect_ratio': True,
         'supports_image_size': False  # Only 1024px resolution
     }
 ]
@@ -111,7 +109,6 @@ def _extract_image_from_response(result: dict) -> str:
 def generate_image(
     prompt: str,
     reference_images: list = None,
-    aspect_ratio: str = "1:1",
     image_size: str = "1K"
 ) -> str:
     """
@@ -120,7 +117,6 @@ def generate_image(
     Args:
         prompt: Text description for the image
         reference_images: List of base64-encoded images for reference
-        aspect_ratio: Output aspect ratio (1:1, 9:16, 16:9, etc.)
         image_size: Output size (1K, 2K, 4K) - only for Pro model
     
     Returns:
@@ -144,7 +140,7 @@ def generate_image(
                 }
             })
     
-    print(f"[GeminiClient] Generating image with aspect_ratio={aspect_ratio}, image_size={image_size}")
+    print(f"[GeminiClient] Generating image with image_size={image_size}")
     
     errors = []
     
@@ -168,14 +164,11 @@ def generate_image(
                 "responseModalities": ["TEXT", "IMAGE"]
             }
             
-            # Build imageConfig based on model capabilities
-            if model_config.get('supports_aspect_ratio') or model_config.get('supports_image_size'):
-                image_config = {}
-                if model_config.get('supports_aspect_ratio'):
-                    image_config["aspectRatio"] = aspect_ratio
-                if model_config.get('supports_image_size'):
-                    image_config["imageSize"] = image_size
-                generation_config["imageConfig"] = image_config
+            # Only add imageConfig for image_size on Pro model (no aspect_ratio)
+            if model_config.get('supports_image_size'):
+                generation_config["imageConfig"] = {
+                    "imageSize": image_size
+                }
             
             payload = {
                 "contents": [{"parts": parts}],
