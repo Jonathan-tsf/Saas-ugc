@@ -119,6 +119,19 @@ from handlers.ai_outfit_generator import (
     get_ai_generation_status,
 )
 
+# Import short generation handlers
+from handlers.short_generation import (
+    get_scene_types,
+    get_outfits_for_short,
+    generate_short_script,
+    regenerate_scene,
+    save_short_script,
+    get_short_scripts,
+    get_short_script,
+    delete_short_script,
+    update_scene_manually,
+)
+
 # Import authentication handlers
 from handlers.auth import (
     sign_up,
@@ -433,6 +446,15 @@ def lambda_handler(event, context):
         ('GET', '/api/admin/ambassadors/showcase-videos/status'): get_showcase_video_status,
         ('POST', '/api/admin/ambassadors/showcase-videos/trim'): trim_showcase_video,
         ('POST', '/api/admin/ambassadors/showcase-videos/select'): select_best_showcase_video,
+        
+        # Admin short/TikTok generation
+        ('GET', '/api/admin/shorts/scene-types'): get_scene_types,
+        ('GET', '/api/admin/shorts/outfits'): get_outfits_for_short,
+        ('POST', '/api/admin/shorts/generate-script'): generate_short_script,
+        ('POST', '/api/admin/shorts/regenerate-scene'): regenerate_scene,
+        ('POST', '/api/admin/shorts/save'): save_short_script,
+        ('GET', '/api/admin/shorts'): get_short_scripts,
+        ('PUT', '/api/admin/shorts/scene'): update_scene_manually,
     }
     
     # Find matching route
@@ -518,6 +540,27 @@ def lambda_handler(event, context):
                 event['pathParameters'] = event.get('pathParameters', {}) or {}
                 event['pathParameters']['job_id'] = job_id
                 return get_ai_generation_status(event)
+    
+    # Short/TikTok script parameterized routes
+    if path.startswith('/api/admin/shorts/') and path not in [
+        '/api/admin/shorts/scene-types',
+        '/api/admin/shorts/outfits', 
+        '/api/admin/shorts/generate-script',
+        '/api/admin/shorts/regenerate-scene',
+        '/api/admin/shorts/save',
+        '/api/admin/shorts/scene'
+    ] and path != '/api/admin/shorts':
+        # Extract script_id from path: /api/admin/shorts/{id}
+        parts = path.split('/')
+        if len(parts) >= 5:
+            script_id = parts[4]
+            event['pathParameters'] = event.get('pathParameters', {}) or {}
+            event['pathParameters']['id'] = script_id
+            
+            if http_method == 'GET':
+                return get_short_script(event)
+            elif http_method == 'DELETE':
+                return delete_short_script(event)
     
     # DEBUG: Categorize outfit route (TEMPORARY - DELETE AFTER USE)
     if path == '/api/admin/outfits/debug-categorize':
