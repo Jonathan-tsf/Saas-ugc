@@ -1,5 +1,5 @@
 """
-Image transformation handlers using Nano Banana Pro API with Replicate fallback
+Image transformation handlers using Nano Banana Pro API with Vertex AI + Replicate fallback
 """
 import json
 import uuid
@@ -12,8 +12,9 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 
 from config import (
     response, decimal_to_python, verify_admin,
-    table, ambassadors_table, s3, S3_BUCKET, NANO_BANANA_API_KEY, REPLICATE_API_KEY
+    table, ambassadors_table, s3, S3_BUCKET, REPLICATE_API_KEY
 )
+from handlers.gemini_client import generate_image as gemini_generate_image
 
 # Replicate API URL for fallback (same model as showcase)
 REPLICATE_API_URL = "https://api.replicate.com/v1/models/google/imagen-3/predictions"
@@ -136,7 +137,7 @@ def get_transformation_steps(gender='female'):
 def call_replicate_api_sync(image_base64, prompt):
     """
     Call Replicate API as fallback for image transformation.
-    This is SYNCHRONOUS - waits for result (up to 120s).
+    This is SYNCHRONOUS - waits for result (up to 120 seconds).
     Returns base64 image data or raises Exception.
     """
     if not REPLICATE_API_KEY:
@@ -197,67 +198,46 @@ def call_replicate_api_sync(image_base64, prompt):
 
 
 def call_nano_banana_api(image_base64, prompt, use_fallback=True):
-    """Call Google Gemini API for image transformation, with Replicate fallback"""
+    """Call Gemini API for image transformation with Vertex AI + Replicate fallback
     
-    # Try Gemini first if API key is configured
-    if NANO_BANANA_API_KEY:
-        try:
-            # Use Gemini Pro model for image generation
-            api_url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash-exp-image-generation:generateContent?key={NANO_BANANA_API_KEY}"
+    Uses gemini_client which handles:
+    1. Google AI Studio (primary)
+    2. Vertex AI (fallback when quota exceeded)
+    3. If both fail, falls back to Replicate
+    """
+    
+    # Try Gemini (with automatic Vertex AI fallback via gemini_client)
+    try:
+        print(f"Calling Gemini for transformation (with Vertex AI fallback)...")
+        result = gemini_generate_image(
+            prompt=prompt,
+            reference_images=[image_base64],
+            aspect_ratio="1:1",
+            image_size="1K"
+        )
+        
+        if result:
+            print("Gemini transformation successful")
+            return result
+        else:
+            print("No image returned from Gemini, trying Replicate fallback...")
             
-            headers = {
-                "Content-Type": "application/json"
-            }
-            
-            payload = {
-                "contents": [{
-                    "parts": [
-                        {"text": prompt},
-                        {"inline_data": {"mime_type": "image/jpeg", "data": image_base64}}
-                    ]
-                }],
-                "generationConfig": {
-                    "responseModalities": ["TEXT", "IMAGE"]
-                }
-            }
-            
-            api_response = requests.post(api_url, headers=headers, json=payload, timeout=120)
-            
-            if api_response.ok:
-                result = api_response.json()
-                
-                # Extract image from Gemini response format
-                for candidate in result.get('candidates', []):
-                    for part in candidate.get('content', {}).get('parts', []):
-                        if 'inlineData' in part:
-                            print("Gemini transformation successful")
-                            return part['inlineData']['data']
-                
-                print("No image in Gemini response, trying fallback...")
-            else:
-                print(f"Gemini API error status: {api_response.status_code}")
-                print(f"Gemini API error body: {api_response.text[:500]}")
-                
-                # Check for quota exceeded (429) or other server errors
-                if api_response.status_code in [429, 500, 503]:
-                    print("Gemini quota/server error, trying Replicate fallback...")
-                else:
-                    # For other errors, still try fallback
-                    print(f"Gemini error {api_response.status_code}, trying fallback...")
-                    
-        except requests.exceptions.RequestException as e:
-            print(f"Gemini API request error: {e}")
-            if hasattr(e, 'response') and e.response is not None:
-                print(f"Response content: {e.response.text[:500]}")
-    else:
-        print("NANO_BANANA_API_KEY not configured, using Replicate directly")
+    except Exception as e:
+        error_msg = str(e)
+        print(f"Gemini API error: {error_msg}")
+        
+        # If it's a quota error and we have Replicate, try that
+        if use_fallback and REPLICATE_API_KEY:
+            print("Gemini failed, attempting Replicate fallback for transformation...")
+        else:
+            raise
     
     # Fallback to Replicate
     if use_fallback and REPLICATE_API_KEY:
         print("Attempting Replicate fallback for transformation...")
         return call_replicate_api_sync(image_base64, prompt)
     
-    raise Exception("Both Gemini and Replicate APIs failed or not configured")
+    raise Exception("All image generation APIs failed or not configured")
 
 
 def generate_transformation_variations(session_id, step_number, image_base64, step_config):
@@ -922,7 +902,7 @@ def call_nano_banana_pro_profile(image_base64, prompt):
 
 def select_profile_photo(event):
     """
-    Select one of the generated profile photos as the ambassador's profile photo.
+    Select one of the generated profile photos as the ambassador profile photo.
     POST /api/admin/ambassadors/profile-photos/select
     Body: { ambassador_id, selected_index }
     """
