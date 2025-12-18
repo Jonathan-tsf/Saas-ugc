@@ -86,25 +86,28 @@ def generate_video_prompt_with_bedrock(image_url: str, scene_context: str = "") 
     """
     model_id = "global.anthropic.claude-sonnet-4-5-20250929-v1:0"
     
-    system_prompt = """You analyze images and describe what action the person is doing.
-Your output will be used for AI video generation to continue that action.
+    system_prompt = """Tu analyses une image et décris l'action CONCRETE que la personne fait.
+Ton output sera utilisé pour générer une vidéo IA de 5 secondes qui continue cette action.
 
-RULES:
-1. Identify the MAIN ACTION the person is doing (typing, scrolling, exercising, cooking, etc.)
-2. Output ONLY a simple continuation prompt
-3. Never add breathing, expressions, or other secondary actions
-4. Keep it to ONE simple sentence
+RÈGLES STRICTES:
+1. Décris l'ACTION PHYSIQUE PRÉCISE (pas "subtle movement" ou descriptions vagues)
+2. Une seule phrase COURTE et DYNAMIQUE
+3. Utilise des VERBES D'ACTION concrets
+4. Si la personne fait du sport: décris le mouvement spécifique (répétitions, course, etc.)
+5. Si la personne marche/sort: "marche rapidement" ou "sort en marchant"
+6. JAMAIS de descriptions passives ou "fait un mouvement subtil"
 
-Examples of good outputs:
-- "The person continues typing on the laptop keyboard"
-- "The person continues scrolling on their phone"
-- "The person continues chopping vegetables"
-- "The person continues doing push-ups"
-- "The person continues running on the treadmill"
-- "The person continues stirring the pan"
-- "The person continues lifting the dumbbell"
+EXEMPLES:
+- Biceps curl -> "La personne fait 3 répétitions de biceps curl"
+- Sortie gym -> "La personne sort rapidement en marchant"
+- Running -> "La personne continue de courir sur le tapis"
+- Phone -> "La personne scroll rapidement sur son téléphone"
+- Cuisine -> "La personne remue énergiquement dans la poêle"
+- Typing -> "La personne tape rapidement sur le clavier"
+- Pose mode -> "La personne tourne légèrement et sourit"
+- Standing -> "La personne fait quelques pas en avant"
 
-If no clear action, just say: "The person makes a subtle movement" """
+Réponds UNIQUEMENT avec le JSON demandé."""
 
     try:
         # Download and encode image
@@ -118,15 +121,21 @@ If no clear action, just say: "The person makes a subtle movement" """
         elif ".webp" in image_url.lower():
             media_type = "image/webp"
         
-        user_prompt = """Look at this image. What action is the person doing?
+        user_prompt = """Analyse cette image. Quelle ACTION PHYSIQUE CONCRETE fait la personne?
 
-Respond with ONLY valid JSON:
-{"action": "The person continues [doing what they're doing]"}
+Règles:
+- Décris le MOUVEMENT précis (pas de description vague)
+- UNE phrase courte et dynamique
+- Verbes d'action: court, fait, soulève, marche, tape, scroll, remue, etc.
 
-Examples:
-{"action": "The person continues typing on the laptop"}
-{"action": "The person continues scrolling on their phone"}
-{"action": "The person continues lifting weights"}"""
+Réponds UNIQUEMENT en JSON valide:
+{"action": "La personne [verbe d'action] [détail concret]"}
+
+Exemples:
+{"action": "La personne fait 3 répétitions de biceps curl"}
+{"action": "La personne sort rapidement du bâtiment"}
+{"action": "La personne scroll sur son téléphone"}
+{"action": "La personne court sur le tapis roulant"}"""
 
         request_body = {
             "anthropic_version": "bedrock-2023-05-31",
@@ -165,10 +174,10 @@ Examples:
         
         # Parse the JSON response
         result = json.loads(content)
-        action = result.get('action', 'The person makes a subtle movement')
+        action = result.get('action', 'La personne fait quelques pas en avant')
         
-        # Build the final simple prompt
-        final_prompt = f"{action}. Static camera, no movement."
+        # Use action directly as prompt (no static camera text)
+        final_prompt = action
         
         print(f"Bedrock video prompt: {final_prompt}")
         
@@ -179,9 +188,9 @@ Examples:
         
     except Exception as e:
         print(f"Error generating video prompt with Bedrock: {e}")
-        # Return a default prompt on error
+        # Return a default dynamic prompt on error
         return {
-            'prompt': "The person makes a subtle movement. Static camera, no movement.",
+            'prompt': "La personne fait quelques pas en avant",
             'negative_prompt': DEFAULT_NEGATIVE_PROMPT
         }
 
@@ -512,7 +521,7 @@ def generate_showcase_videos_async(job_id: str):
                     image_url=task['image_url'],
                     prompt=task['prompt'],
                     negative_prompt=task['negative_prompt'],
-                    duration=10
+                    duration=5
                 )
                 
                 task['replicate_id'] = prediction['id']
