@@ -18,11 +18,6 @@ S3_BUCKET = os.environ.get('S3_BUCKET', 'ugc-ambassadors-media')
 NANO_BANANA_API_KEY = os.environ.get('NANO_BANANA_PRO_API_KEY', os.environ.get('NANO_BANANA_API_KEY', ''))
 # Replicate API key for fallback
 REPLICATE_API_KEY = os.environ.get('REPLICATE_KEY', '')
-# Vertex AI configuration (same billing, separate quota)
-VERTEX_AI_PROJECT_ID = os.environ.get('VERTEX_AI_PROJECT_ID', '')
-VERTEX_AI_LOCATION = os.environ.get('VERTEX_AI_LOCATION', 'us-central1')
-# Service account JSON stored as base64 in env var, or use default credentials
-VERTEX_AI_CREDENTIALS_B64 = os.environ.get('VERTEX_AI_CREDENTIALS_B64', '')
 
 # AWS Clients
 dynamodb = boto3.resource('dynamodb')
