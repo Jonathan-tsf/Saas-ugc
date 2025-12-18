@@ -21,12 +21,12 @@ MODELS = [
     {
         'name': 'gemini-3-pro-image-preview',
         'display': 'Nano Banana Pro',
-        'supports_image_size': True  # Supports 1K, 2K, 4K
+        'supports_image_config': True  # Supports aspectRatio and imageSize
     },
     {
         'name': 'gemini-2.0-flash-exp',
         'display': 'Gemini 2.0 Flash',
-        'supports_image_size': False  # Only supports default resolution
+        'supports_image_config': False  # Does NOT support aspectRatio or imageSize
     }
 ]
 
@@ -150,7 +150,6 @@ def generate_image(
     for model_config in MODELS:
         model_name = model_config['name']
         display_name = model_config['display']
-        supports_image_size = model_config['supports_image_size']
         
         # Skip if quota exhausted
         if _quota_status.get(model_name, {}).get('exhausted'):
@@ -163,16 +162,20 @@ def generate_image(
             print(f"[GeminiClient] Trying {display_name} ({model_name})...")
             
             # Build payload for this model
-            image_config = {"aspectRatio": aspect_ratio}
-            if supports_image_size:
-                image_config["imageSize"] = image_size
+            generation_config = {
+                "responseModalities": ["TEXT", "IMAGE"]
+            }
+            
+            # Only add imageConfig for models that support it
+            if model_config.get('supports_image_config'):
+                generation_config["imageConfig"] = {
+                    "aspectRatio": aspect_ratio,
+                    "imageSize": image_size
+                }
             
             payload = {
                 "contents": [{"parts": parts}],
-                "generationConfig": {
-                    "responseModalities": ["TEXT", "IMAGE"],
-                    "imageConfig": image_config
-                }
+                "generationConfig": generation_config
             }
             
             result = _call_model(model_name, payload)
