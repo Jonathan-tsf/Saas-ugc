@@ -32,26 +32,6 @@ TRANSFORMATION_STEPS = [
     },
     {
         'step': 2,
-        'name': 'clothing',
-        'prompts': [
-            "Change to simple solid-colored athletic sportswear, no graphics or patterns, clean professional style, same background",
-            "Change to elegant plain athletic wear, no accessories, no caps, no jewelry, minimalist style, same background",
-            "Change to modern solid athletic outfit, no graphic tees, no ripped jeans, clean style, same background",
-            "Change to premium plain sportswear, no embellishments, no decorations, sophisticated simple style, same background"
-        ]
-    },
-    {
-        'step': 3,
-        'name': 'background',
-        'prompts': [
-            "Transform room style to match outfit, modern minimalist ambiance with warm soft lighting, keep same space type and room",
-            "Change interior style to contemporary chic, adjust lighting mood to complement clothing colors, keep same room",
-            "Update room atmosphere to match clothing vibe, subtle elegant decoration style, same space with refined lighting",
-            "Bold style transformation of current space, dramatic professional lighting enhancement, keep exact same room"
-        ]
-    },
-    {
-        'step': 4,
         'name': 'facial_features',
         'prompts': [
             "Subtly refine facial features, enhance natural bone structure, clearer skin texture, NO makeup, natural look only",
@@ -61,7 +41,7 @@ TRANSFORMATION_STEPS = [
         ]
     },
     {
-        'step': 5,
+        'step': 3,
         'name': 'skin_tone',
         'prompts': [
             "Adjust skin to slightly sun-kissed warm bronze glow",
