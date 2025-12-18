@@ -847,56 +847,26 @@ def call_nano_banana_pro_profile(image_base64, prompt):
     """
     Call Nano Banana Pro (Gemini 3 Pro Image Preview) for profile photo generation.
     Uses 1:1 aspect ratio for profile photos.
+    Uses gemini_client which handles Google AI Studio -> Vertex AI fallback.
     """
-    if not NANO_BANANA_API_KEY:
-        raise Exception("NANO_BANANA_API_KEY not configured")
-    
-    # Nano Banana Pro = gemini-3-pro-image-preview
-    api_url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-3-pro-image-preview:generateContent?key={NANO_BANANA_API_KEY}"
-    
-    headers = {
-        "Content-Type": "application/json"
-    }
-    
-    payload = {
-        "contents": [{
-            "parts": [
-                {"text": prompt},
-                {"inline_data": {"mime_type": "image/jpeg", "data": image_base64}}
-            ]
-        }],
-        "generationConfig": {
-            "responseModalities": ["TEXT", "IMAGE"],
-            "imageConfig": {
-                "aspectRatio": "1:1",
-                "imageSize": "1K"
-            }
-        }
-    }
-    
     try:
-        print(f"Calling Nano Banana Pro API for profile photo...")
-        api_response = requests.post(api_url, headers=headers, json=payload, timeout=180)
+        print(f"Calling Gemini for profile photo (with Vertex AI fallback)...")
+        result = gemini_generate_image(
+            prompt=prompt,
+            reference_images=[image_base64],
+            aspect_ratio="1:1",
+            image_size="1K"
+        )
         
-        if api_response.ok:
-            result = api_response.json()
-            
-            # Extract image from response
-            for candidate in result.get('candidates', []):
-                for part in candidate.get('content', {}).get('parts', []):
-                    if 'inlineData' in part:
-                        print("Nano Banana Pro profile generation successful")
-                        return part['inlineData']['data']
-            
-            print("No image in Nano Banana Pro response")
-            return None
+        if result:
+            print("Profile photo generation successful")
+            return result
         else:
-            print(f"Nano Banana Pro API error: {api_response.status_code}")
-            print(f"Response: {api_response.text[:500]}")
+            print("No image returned from Gemini for profile photo")
             return None
             
     except Exception as e:
-        print(f"Nano Banana Pro API error: {e}")
+        print(f"Profile photo generation error: {e}")
         return None
 
 

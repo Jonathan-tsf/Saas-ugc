@@ -1,5 +1,5 @@
 """
-Image transformation handlers using Gemini API - ASYNC ARCHITECTURE
+Image transformation handlers using Gemini API with Vertex AI fallback - ASYNC ARCHITECTURE
 """
 import json
 import uuid
@@ -11,8 +11,9 @@ from decimal import Decimal
 
 from config import (
     response, decimal_to_python, verify_admin,
-    ambassadors_table, s3, S3_BUCKET, NANO_BANANA_API_KEY, dynamodb, lambda_client
+    ambassadors_table, s3, S3_BUCKET, dynamodb, lambda_client
 )
+from handlers.gemini_client import generate_image as gemini_generate_image
 
 # Create jobs table reference
 jobs_table = dynamodb.Table('nano_banana_jobs')
@@ -73,50 +74,26 @@ TRANSFORMATION_STEPS = [
 
 
 def call_gemini_api(image_base64, prompt):
-    """Call Google Gemini API for image transformation"""
-    if not NANO_BANANA_API_KEY:
-        raise Exception("GEMINI_API_KEY not configured")
-    
-    api_url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-3-pro-image-preview:generateContent?key={NANO_BANANA_API_KEY}"
-    
-    headers = {
-        "Content-Type": "application/json"
-    }
-    
-    payload = {
-        "contents": [{
-            "parts": [
-                {"text": prompt},
-                {"inline_data": {"mime_type": "image/jpeg", "data": image_base64}}
-            ]
-        }],
-        "generationConfig": {
-            "responseModalities": ["IMAGE"]
-        }
-    }
-    
+    """Call Gemini API for image transformation with Vertex AI fallback.
+    Uses gemini_client which handles Google AI Studio -> Vertex AI fallback.
+    """
     try:
-        api_response = requests.post(api_url, headers=headers, json=payload, timeout=120)
+        print(f"Calling Gemini for transformation (with Vertex AI fallback)...")
+        result = gemini_generate_image(
+            prompt=prompt,
+            reference_images=[image_base64],
+            aspect_ratio="1:1",
+            image_size="1K"
+        )
         
-        if not api_response.ok:
-            print(f"Gemini API error status: {api_response.status_code}")
-            print(f"Gemini API error body: {api_response.text}")
-            
-        api_response.raise_for_status()
-        result = api_response.json()
-        
-        # Extract image from Gemini response format
-        for candidate in result.get('candidates', []):
-            for part in candidate.get('content', {}).get('parts', []):
-                if 'inlineData' in part:
-                    return part['inlineData']['data']
+        if result:
+            print("Gemini transformation successful")
+            return result
         
         raise Exception("No image in API response")
             
-    except requests.exceptions.RequestException as e:
+    except Exception as e:
         print(f"Gemini API error: {e}")
-        if hasattr(e, 'response') and e.response is not None:
-             print(f"Response content: {e.response.text}")
         raise Exception(f"Image transformation failed: {str(e)}")
 
 

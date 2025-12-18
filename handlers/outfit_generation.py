@@ -1,6 +1,7 @@
 """
 Outfit generation handlers
 Generates ambassador photos wearing different outfits using Nano Banana Pro (Gemini 3 Pro Image)
+with automatic Vertex AI fallback.
 """
 import json
 import uuid
@@ -11,8 +12,9 @@ from datetime import datetime
 
 from config import (
     response, decimal_to_python, verify_admin,
-    dynamodb, s3, S3_BUCKET, NANO_BANANA_API_KEY, upload_to_s3
+    dynamodb, s3, S3_BUCKET, upload_to_s3
 )
+from handlers.gemini_client import generate_image as gemini_generate_image
 
 # DynamoDB tables
 ambassadors_table = dynamodb.Table('ambassadors')
@@ -22,9 +24,6 @@ jobs_table = dynamodb.Table('nano_banana_jobs')
 # Lambda client for async invocation
 lambda_client = boto3.client('lambda')
 LAMBDA_FUNCTION_NAME = 'saas-ugc'
-
-# Gemini 3 Pro Image Preview (Nano Banana Pro) - for high-fidelity outfit transfer
-GEMINI_API_URL = "https://generativelanguage.googleapis.com/v1beta/models/gemini-3-pro-image-preview:generateContent"
 
 
 def get_image_from_s3(image_url):
@@ -48,7 +47,7 @@ def get_image_from_s3(image_url):
 
 
 def generate_outfit_images(profile_image_base64, outfit_image_base64, outfit_description, ambassador_name):
-    """Generate 2 images of the ambassador wearing the outfit using Nano Banana Pro (Gemini 3 Pro Image)"""
+    """Generate 2 images of the ambassador wearing the outfit using Gemini with Vertex AI fallback"""
     
     # Prompt optimized for high-fidelity outfit transfer - preserving the person exactly
     prompt = f"""Using the provided images, place the outfit from the second image onto the person in the first image.
@@ -65,67 +64,27 @@ The outfit to apply: {outfit_description}
 
 Generate a professional fashion photo in portrait orientation (9:16 aspect ratio)."""
 
-    headers = {
-        "Content-Type": "application/json"
-    }
-    
-    # Payload for Gemini 3 Pro Image Preview with proper config
-    payload = {
-        "contents": [{
-            "parts": [
-                {"text": prompt},
-                {
-                    "inline_data": {
-                        "mime_type": "image/jpeg",
-                        "data": profile_image_base64
-                    }
-                },
-                {
-                    "inline_data": {
-                        "mime_type": "image/jpeg", 
-                        "data": outfit_image_base64
-                    }
-                }
-            ]
-        }],
-        "generationConfig": {
-            "responseModalities": ["TEXT", "IMAGE"],
-            "imageConfig": {
-                "aspectRatio": "9:16",
-                "imageSize": "2K"
-            }
-        }
-    }
-    
     generated_images = []
     
-    # Generate 2 images
+    # Generate 2 images using gemini_client with Vertex AI fallback
     for i in range(2):
         try:
-            api_response = requests.post(
-                f"{GEMINI_API_URL}?key={NANO_BANANA_API_KEY}",
-                headers=headers,
-                json=payload,
-                timeout=120
+            print(f"Generating outfit image {i+1}/2 (with Vertex AI fallback)...")
+            result = gemini_generate_image(
+                prompt=prompt,
+                reference_images=[profile_image_base64, outfit_image_base64],
+                aspect_ratio="9:16",
+                image_size="2K"
             )
             
-            if api_response.status_code == 200:
-                result = api_response.json()
-                
-                # Extract image from response
-                if 'candidates' in result and len(result['candidates']) > 0:
-                    candidate = result['candidates'][0]
-                    if 'content' in candidate and 'parts' in candidate['content']:
-                        for part in candidate['content']['parts']:
-                            if 'inlineData' in part:
-                                image_data = part['inlineData']['data']
-                                generated_images.append(image_data)
-                                break
+            if result:
+                generated_images.append(result)
+                print(f"Outfit image {i+1} generated successfully")
             else:
-                print(f"API error: {api_response.status_code} - {api_response.text}")
+                print(f"No image returned for outfit image {i+1}")
                 
         except Exception as e:
-            print(f"Error generating image {i+1}: {e}")
+            print(f"Error generating outfit image {i+1}: {e}")
     
     return generated_images
 
