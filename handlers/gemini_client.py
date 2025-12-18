@@ -284,7 +284,6 @@ def generate_image(
         "generationConfig": {
             "responseModalities": ["TEXT", "IMAGE"],
             "imageConfig": {
-                "aspectRatio": aspect_ratio,
                 "imageSize": image_size
             }
         }

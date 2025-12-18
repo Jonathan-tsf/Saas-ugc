@@ -82,7 +82,6 @@ def call_gemini_api(image_base64, prompt):
         result = gemini_generate_image(
             prompt=prompt,
             reference_images=[image_base64],
-            aspect_ratio="1:1",
             image_size="1K"
         )
         
