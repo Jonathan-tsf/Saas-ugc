@@ -87,30 +87,30 @@ def generate_video_prompt_with_bedrock(image_url: str, scene_context: str = "") 
     model_id = "global.anthropic.claude-sonnet-4-5-20250929-v1:0"
     
     system_prompt = """Tu analyses une image et décris l'action que la personne fait.
-Ton output sera utilisé pour générer une vidéo IA de 5 SECONDES.
+Ton output sera utilisé pour générer une vidéo IA de 5 secondes.
 
-RÈGLE CRITIQUE: L'action doit être RÉALISABLE en 5 secondes maximum!
-
-ACTIONS AUTORISÉES (réalistes en 5 sec):
-- Sport: "UNE répétition lente" ou "maintient la position" ou "continue le mouvement"
-- Marche: "fait 2-3 pas" ou "avance légèrement"
-- Phone: "scroll doucement" ou "tape un message"
-- Cuisine: "remue une fois" ou "coupe un ingrédient"
-- Pose: "tourne la tête" ou "sourit à la caméra" ou "ajuste sa tenue"
-- Debout: "fait un pas en avant" ou "regarde autour"
-
-INTERDIT (trop long pour 5 sec):
-- "3 répétitions" -> utilise "une répétition lente"
-- "court pendant..." -> utilise "continue de courir"
-- "fait plusieurs..." -> utilise "fait un/une..."
+RÈGLES:
+1. Décris l'ACTION en cours avec un verbe dynamique
+2. Toujours ajouter à la fin: "Caméra fixe."
+3. Vitesse NATURELLE (jamais "lentement", "doucement", "subtil")
+4. Si sourire: toujours "léger sourire"
+5. Action CONTINUE (pas "maintient", pas "reste immobile")
 
 EXEMPLES CORRECTS:
-- Biceps curl -> "La personne fait une répétition lente de biceps curl"
-- Squat -> "La personne maintient sa position de squat"
-- Running -> "La personne continue de courir"
-- Sortie -> "La personne fait quelques pas vers la sortie"
-- Phone -> "La personne scroll sur son téléphone"
-- Pose -> "La personne sourit et tourne légèrement la tête"
+- Biceps curl -> "La personne continue sa série de biceps curl. Caméra fixe."
+- Squat -> "La personne continue sa série de squats. Caméra fixe."
+- Running -> "La personne continue de courir. Caméra fixe."
+- Marche -> "La personne marche vers l'avant. Caméra fixe."
+- Phone -> "La personne scroll sur son téléphone. Caméra fixe."
+- Pose mode -> "La personne pose avec un léger sourire. Caméra fixe."
+- Cuisine -> "La personne remue dans la poêle. Caméra fixe."
+- Typing -> "La personne tape sur le clavier. Caméra fixe."
+- Debout -> "La personne fait quelques pas. Caméra fixe."
+
+INTERDIT:
+- "lentement", "doucement", "subtil", "légèrement" (sauf pour sourire)
+- "maintient", "reste", "immobile", "statique"
+- "subtle movement"
 
 Réponds UNIQUEMENT avec le JSON demandé."""
 
@@ -128,17 +128,14 @@ Réponds UNIQUEMENT avec le JSON demandé."""
         
         user_prompt = """Analyse cette image. Quelle action fait la personne?
 
-RAPPEL: La vidéo dure 5 SECONDES, donc l'action doit être simple et courte!
+Réponds en JSON:
+{"action": "La personne [action dynamique]. Caméra fixe."}
 
-Réponds UNIQUEMENT en JSON valide:
-{"action": "La personne [action réalisable en 5 sec]"}
-
-Bons exemples (réalistes en 5 sec):
-{"action": "La personne fait une répétition lente de biceps curl"}
-{"action": "La personne fait quelques pas vers la sortie"}
-{"action": "La personne scroll sur son téléphone"}
-{"action": "La personne continue de courir"}
-{"action": "La personne sourit et tourne la tête"}"""
+Exemples:
+{"action": "La personne continue sa série de biceps curl. Caméra fixe."}
+{"action": "La personne marche vers l'avant. Caméra fixe."}
+{"action": "La personne scroll sur son téléphone. Caméra fixe."}
+{"action": "La personne pose avec un léger sourire. Caméra fixe."}"""
 
         request_body = {
             "anthropic_version": "bedrock-2023-05-31",
@@ -177,9 +174,9 @@ Bons exemples (réalistes en 5 sec):
         
         # Parse the JSON response
         result = json.loads(content)
-        action = result.get('action', 'La personne fait quelques pas en avant')
+        action = result.get('action', 'La personne fait quelques pas. Caméra fixe.')
         
-        # Use action directly as prompt (no static camera text)
+        # Use action directly as prompt
         final_prompt = action
         
         print(f"Bedrock video prompt: {final_prompt}")
@@ -193,7 +190,7 @@ Bons exemples (réalistes en 5 sec):
         print(f"Error generating video prompt with Bedrock: {e}")
         # Return a default dynamic prompt on error
         return {
-            'prompt': "La personne fait quelques pas en avant",
+            'prompt': "La personne fait quelques pas. Caméra fixe.",
             'negative_prompt': DEFAULT_NEGATIVE_PROMPT
         }
 
