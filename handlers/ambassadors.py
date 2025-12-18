@@ -394,7 +394,7 @@ def get_hero_videos(event):
     import re
     
     params = event.get('queryStringParameters', {}) or {}
-    requested_count = min(int(params.get('count', 6)), 24)  # Increased max to 24
+    requested_count = min(int(params.get('count', 6)), 24)  # Max 24 videos
     
     print(f"[HERO_VIDEOS] Requested count: {requested_count}")
     
@@ -405,21 +405,21 @@ def get_hero_videos(event):
         
         print(f"[HERO_VIDEOS] Total ambassadors found: {len(all_ambassadors)}")
         
-        # Collect all videos from ALL ambassadors (not just non-attributed)
-        male_videos = []
-        female_videos = []
+        # Collect ALL videos from ALL ambassadors
+        all_videos = []
         
         for amb in all_ambassadors:
-            # Include ALL ambassadors for hero videos
-            # (removed hasBeenChosen filter to show more content)
-            
-            # Get showcase videos
             showcase_videos = amb.get('showcase_videos', [])
             if showcase_videos:
                 print(f"[HERO_VIDEOS] Ambassador {amb.get('name', 'Unknown')} has {len(showcase_videos)} videos")
+            
             gender = amb.get('gender', 'other')
             
             for video in showcase_videos:
+                # Only include videos with valid URLs
+                if not video.get('url'):
+                    continue
+                    
                 video_data = {
                     'url': video.get('url'),
                     'prompt': video.get('prompt', ''),
@@ -428,61 +428,22 @@ def get_hero_videos(event):
                     'gender': gender,
                     'scene_category': categorize_scene(video.get('prompt', ''))
                 }
-                
-                if gender == 'male':
-                    male_videos.append(video_data)
-                else:
-                    female_videos.append(video_data)
+                all_videos.append(video_data)
         
-        # Shuffle both lists
-        random.shuffle(male_videos)
-        random.shuffle(female_videos)
+        print(f"[HERO_VIDEOS] Total videos collected: {len(all_videos)}")
         
-        # Diversified selection algorithm
-        selected_videos = []
-        used_categories = set()
-        male_idx = 0
-        female_idx = 0
-        use_male = random.choice([True, False])  # Random starting gender
+        # Shuffle all videos randomly
+        random.shuffle(all_videos)
         
-        while len(selected_videos) < requested_count:
-            # Alternate between genders
-            if use_male and male_idx < len(male_videos):
-                video = male_videos[male_idx]
-                male_idx += 1
-            elif not use_male and female_idx < len(female_videos):
-                video = female_videos[female_idx]
-                female_idx += 1
-            elif male_idx < len(male_videos):
-                video = male_videos[male_idx]
-                male_idx += 1
-            elif female_idx < len(female_videos):
-                video = female_videos[female_idx]
-                female_idx += 1
-            else:
-                break  # No more videos available
-            
-            # Check semantic diversity - prefer different scene categories
-            scene_cat = video.get('scene_category', 'other')
-            
-            # Accept if category not used recently (last 3) or if we need videos
-            recent_categories = [v['scene_category'] for v in selected_videos[-3:]]
-            if scene_cat not in recent_categories or len(selected_videos) >= requested_count - 2:
-                selected_videos.append(video)
-                used_categories.add(scene_cat)
-            
-            use_male = not use_male  # Alternate gender
+        # Take requested count (or all if fewer available)
+        selected_videos = all_videos[:requested_count]
         
-        # Final shuffle to randomize the order
-        random.shuffle(selected_videos)
-        
-        print(f"[HERO_VIDEOS] Returning {len(selected_videos)} videos (male: {len(male_videos)}, female: {len(female_videos)})")
+        print(f"[HERO_VIDEOS] Returning {len(selected_videos)} videos")
         
         return response(200, {
             'videos': selected_videos,
             'count': len(selected_videos),
-            'total_male': len(male_videos),
-            'total_female': len(female_videos)
+            'total_available': len(all_videos)
         })
         
     except Exception as e:
