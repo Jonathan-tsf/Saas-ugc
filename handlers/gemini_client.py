@@ -25,17 +25,17 @@ MODELS = [
         'supports_image_size': True  # Supports 1K, 2K, 4K
     },
     {
-        'name': 'gemini-2.5-flash-preview-image',
-        'display': 'Gemini 2.5 Flash Image',
+        'name': 'gemini-2.5-flash-image',  # Correct model name (not "preview")
+        'display': 'Nano Banana (Flash)',
         'supports_aspect_ratio': True,
-        'supports_image_size': False  # Only default resolution
+        'supports_image_size': False  # Only 1024px resolution
     }
 ]
 
 # Track quota status per model
 _quota_status = {
     'gemini-3-pro-image-preview': {'exhausted': False, 'reset_time': None},
-    'gemini-2.5-flash-preview-image': {'exhausted': False, 'reset_time': None}
+    'gemini-2.5-flash-image': {'exhausted': False, 'reset_time': None}
 }
 
 
