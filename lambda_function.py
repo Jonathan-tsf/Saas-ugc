@@ -89,6 +89,7 @@ from handlers.showcase_videos import (
     get_showcase_video_status,
     get_ambassador_showcase_videos,
     delete_showcase_video,
+    delete_showcase_videos_batch,
     generate_showcase_videos_async,
     trim_showcase_video,
     select_best_showcase_video,
@@ -459,6 +460,10 @@ def lambda_handler(event, context):
                 return get_ambassador_showcase_videos(event)
             elif http_method == 'DELETE':
                 return delete_showcase_video(event)
+    
+    # Batch delete showcase videos
+    if path == '/api/admin/ambassadors/showcase-videos/delete-batch' and http_method == 'POST':
+        return delete_showcase_videos_batch(event)
     
     if http_method == 'GET' and path.startswith('/api/admin/ambassadors/') and path != '/api/admin/ambassadors/upload-url' and '/showcase-videos' not in path:
         return get_ambassador(event)

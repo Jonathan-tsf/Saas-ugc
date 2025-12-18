@@ -84,7 +84,7 @@ def generate_video_prompt_with_bedrock(image_url: str, scene_context: str = "") 
     Returns:
         dict with 'prompt', 'negative_prompt' keys
     """
-    model_id = "global.anthropic.claude-sonnet-4-5-20250929-v1:0"
+    model_id = "us.anthropic.claude-sonnet-4-5-20250929-v1:0"
     
     system_prompt = """Tu analyses une image et décris l'action que la personne fait.
 Ton output sera utilisé pour générer une vidéo IA de 5 secondes.
@@ -169,12 +169,30 @@ Exemples:
             accept="application/json"
         )
         
-        response_body = json.loads(response_data['body'].read())
+        # Read and decode response body
+        raw_body = response_data['body'].read()
+        print(f"Bedrock raw body length: {len(raw_body)} bytes")
+        
+        if not raw_body:
+            print("ERROR: Bedrock returned empty response body!")
+            raise Exception("Empty response from Bedrock")
+        
+        response_body = json.loads(raw_body)
         content = response_body.get('content', [{}])[0].get('text', '{}')
         
+        print(f"Bedrock raw response: {content[:200]}...")
+        
         # Parse the JSON response
-        result = json.loads(content)
-        action = result.get('action', 'La personne fait quelques pas. Caméra fixe.')
+        try:
+            result = json.loads(content)
+            action = result.get('action', 'La personne fait quelques pas. Caméra fixe.')
+        except json.JSONDecodeError:
+            # If not valid JSON, try to extract the action from the text
+            print(f"Bedrock response not valid JSON, using raw text")
+            if "La personne" in content:
+                action = content.strip()
+            else:
+                action = 'La personne fait quelques pas. Caméra fixe.'
         
         # Use action directly as prompt
         final_prompt = action
@@ -188,6 +206,8 @@ Exemples:
         
     except Exception as e:
         print(f"Error generating video prompt with Bedrock: {e}")
+        import traceback
+        traceback.print_exc()
         # Return a default dynamic prompt on error
         return {
             'prompt': "La personne fait quelques pas. Caméra fixe.",
@@ -827,6 +847,84 @@ def delete_showcase_video(event):
         print(f"Error deleting video: {e}")
         return response(500, {'error': 'Failed to delete video'})
 
+
+def delete_showcase_videos_batch(event):
+    """
+    Delete multiple showcase videos at once.
+    POST /api/admin/ambassadors/showcase-videos/delete-batch
+    Body: { ambassador_id, video_indices: [0, 2, 5, ...] }
+    """
+    if not verify_admin(event):
+        return response(401, {'error': 'Unauthorized'})
+    
+    try:
+        body = json.loads(event.get('body', '{}'))
+    except:
+        return response(400, {'error': 'Invalid JSON body'})
+    
+    ambassador_id = body.get('ambassador_id')
+    video_indices = body.get('video_indices', [])
+    
+    if not ambassador_id:
+        return response(400, {'error': 'ambassador_id is required'})
+    
+    if not video_indices or not isinstance(video_indices, list):
+        return response(400, {'error': 'video_indices array is required'})
+    
+    try:
+        result = ambassadors_table.get_item(Key={'id': ambassador_id})
+        ambassador = result.get('Item')
+        
+        if not ambassador:
+            return response(404, {'error': 'Ambassador not found'})
+        
+        videos = ambassador.get('showcase_videos', [])
+        
+        # Sort indices in descending order to delete from end first
+        # This prevents index shifting issues
+        sorted_indices = sorted(set(video_indices), reverse=True)
+        
+        deleted_count = 0
+        videos_to_delete_from_s3 = []
+        
+        for idx in sorted_indices:
+            if 0 <= idx < len(videos):
+                deleted_video = videos.pop(idx)
+                deleted_count += 1
+                
+                # Collect S3 URLs for deletion
+                if deleted_video.get('url') and S3_BUCKET in deleted_video['url']:
+                    videos_to_delete_from_s3.append(deleted_video['url'])
+        
+        # Update ambassador
+        ambassadors_table.update_item(
+            Key={'id': ambassador_id},
+            UpdateExpression='SET showcase_videos = :videos, updated_at = :updated',
+            ExpressionAttributeValues={
+                ':videos': videos,
+                ':updated': datetime.now().isoformat()
+            }
+        )
+        
+        # Delete from S3
+        for url in videos_to_delete_from_s3:
+            try:
+                s3_key = url.split(f"{S3_BUCKET}.s3.amazonaws.com/")[1]
+                s3.delete_object(Bucket=S3_BUCKET, Key=s3_key)
+                print(f"Deleted from S3: {s3_key}")
+            except Exception as e:
+                print(f"Error deleting from S3: {e}")
+        
+        return response(200, {
+            'success': True,
+            'message': f'Deleted {deleted_count} videos',
+            'deleted_count': deleted_count,
+            'remaining_count': len(videos)
+        })
+        
+    except Exception as e:
+        print(f"Error batch deleting videos: {e}")
+        return response(500, {'error': 'Failed to batch delete videos'})
 
 def trim_showcase_video(event):
     """
