@@ -52,25 +52,24 @@ def generate_single_variation_image(description: str, index: int, job_id: str, o
             'unisex': "unisex clothing"
         }.get(gender, 'unisex clothing')
         
-        prompt = f"""Based on the provided clothing item image, create a VARIATION with these changes:
+        prompt = f"""Based on the provided clothing item image, create a COLOR VARIATION:
 
 {description}
 
 CRITICAL INSTRUCTIONS:
-1. Use the PROVIDED IMAGE as the base reference - keep the same garment TYPE and SILHOUETTE
-2. Apply ONLY the modifications described above (color, pattern, details changes)
-3. MAINTAIN the exact same proportions, scale, and positioning as the original
-4. This is {gender_context} - keep the same gender-appropriate fit and style
-5. Keep the same photography style: flat lay or invisible mannequin on pure white background
+1. KEEP THE EXACT SAME GARMENT: same type, same cut, same style, same design, same logos/graphics
+2. ONLY CHANGE THE COLOR as described above
+3. Maintain IDENTICAL proportions, scale, positioning, and photography style
+4. Keep all design elements (logos, patterns, graphics) in the same position - only their color changes
+5. This is {gender_context} - keep the same fit
 
-Requirements:
+Technical requirements:
 - Pure white background (#FFFFFF)
-- SAME garment proportions and scale as the original image
-- SAME positioning and angle as the original
+- IDENTICAL garment shape and silhouette as the original
+- SAME angle and positioning
 - E-commerce quality product photography
 - NO human model visible
 - Square format (1:1), centered composition
-- Apply ONLY the described variation, keep everything else identical
 """
         
         # Build reference images list

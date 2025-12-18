@@ -263,35 +263,31 @@ def generate_outfit_variations_descriptions(image_base64: str, original_descript
     
     prompt = f"""Regarde cette image de vêtement. La description originale est: "{original_description}"
 
-Génère exactement {num_variations} variations CRÉATIVES et DIVERSIFIÉES de ce vêtement.
+Génère exactement {num_variations} variations de COULEUR de ce vêtement.
 
 RÈGLES IMPORTANTES:
-1. GARDER LE MÊME STYLE: Si c'est un vêtement de sport/fitness, reste sport/fitness. Si c'est casual, reste casual.
-2. GARDER LE MÊME TYPE: Un t-shirt reste un t-shirt, un legging reste un legging, etc.
-3. VARIER BEAUCOUP PLUS QUE LA COULEUR - change aussi:
-   - Les MOTIFS: unis, rayures, tie-dye, dégradé, camouflage, géométrique, floral
-   - Les IMPRIMÉS: logos différents, graphiques, texte, emblèmes sportifs
-   - La COUPE: ajustée, regular, oversize, crop, asymétrique
-   - Les DÉTAILS: col rond/V/montant, manches courtes/longues/raglan, fermetures, poches
-   - Les TEXTURES: mesh respirant, compression, jersey, coton, technique
-   - Les FINITIONS: coutures contrastées, bandes latérales, empiècements, surpiqûres
+1. GARDER EXACTEMENT LE MÊME VÊTEMENT: même type, même coupe, même style, mêmes détails
+2. CHANGER UNIQUEMENT LA COULEUR ou les combinaisons de couleurs
+3. Les logos, motifs graphiques et design restent identiques - seule la couleur change
+4. Proposer des couleurs variées: classiques (noir, blanc, gris, bleu marine) ET modernes (corail, menthe, lavande)
+5. Inclure des bicolores si l'original en a (ex: "noir avec détails rouges")
 
-4. Être réaliste et vendable comme vêtement de sport/fitness
-5. Chaque description: 80-120 caractères, en français
+EXEMPLES pour un "T-shirt noir Nike avec logo blanc":
+- "T-shirt blanc Nike avec logo noir"
+- "T-shirt bleu marine Nike avec logo blanc"  
+- "T-shirt gris chiné Nike avec logo noir"
+- "T-shirt rouge Nike avec logo blanc"
+- "T-shirt vert forêt Nike avec logo blanc"
+- "T-shirt beige Nike avec logo marron"
 
 Réponds UNIQUEMENT avec du JSON valide:
 {{"variations": [
-    "Description variation 1...",
-    "Description variation 2...",
+    "Description variation 1 (même vêtement, couleur différente)...",
+    "Description variation 2 (même vêtement, couleur différente)...",
     ... ({num_variations} variations au total)
 ]}}
 
-Exemples de variations DIVERSIFIÉES pour un "T-shirt noir Nike ajusté":
-- "T-shirt blanc Nike oversize avec grand logo graphique multicolore sur la poitrine, col large"
-- "T-shirt bleu tie-dye Nike coupe crop avec mesh respirant sur le dos, manches raglan"
-- "T-shirt gris chiné Nike compression avec rayures réfléchissantes latérales, col montant"
-- "T-shirt bordeaux Nike regular avec empiècements mesh sous les bras, logo brodé discret"
-- "T-shirt vert militaire Nike oversize camouflage subtil, poche poitrine, finitions contrastées"
+Chaque description: 40-80 caractères, en français, format: "[Type vêtement] [couleur] [marque si visible] [détails couleur si bicolore]"
 """
 
     try:
