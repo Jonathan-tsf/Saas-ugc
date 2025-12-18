@@ -916,6 +916,8 @@ def select_best_showcase_video(event):
         photo_index = int(photo_index)
         selected_video_num = int(selected_video_num)
         
+        print(f"[SELECT_VIDEO] Ambassador: {ambassador_id}, Photo: {photo_index}, Selected: {selected_video_num}")
+        
         result = ambassadors_table.get_item(Key={'id': ambassador_id})
         ambassador = result.get('Item')
         
@@ -923,20 +925,33 @@ def select_best_showcase_video(event):
             return response(404, {'error': 'Ambassador not found'})
         
         videos = ambassador.get('showcase_videos', [])
+        print(f"[SELECT_VIDEO] Total videos before selection: {len(videos)}")
         
         # Find videos for this photo
         videos_to_keep = []
         videos_to_delete = []
         
         for video in videos:
-            if video.get('photo_index') == photo_index:
-                if video.get('video_num') == selected_video_num:
+            # Convert Decimal to int for comparison
+            video_photo_index = int(video.get('photo_index', -1))
+            video_num = int(video.get('video_num', -1))
+            
+            print(f"[SELECT_VIDEO] Checking video: photo_index={video_photo_index}, video_num={video_num}")
+            
+            if video_photo_index == photo_index:
+                if video_num == selected_video_num:
                     # Mark as selected
                     video['is_selected'] = True
                     videos_to_keep.append(video)
+                    print(f"[SELECT_VIDEO] KEEPING video {video_num}")
                 else:
                     # Mark for deletion
                     videos_to_delete.append(video)
+                    print(f"[SELECT_VIDEO] DELETING video {video_num}")
+            else:
+                videos_to_keep.append(video)
+        
+        print(f"[SELECT_VIDEO] Videos to keep: {len(videos_to_keep)}, to delete: {len(videos_to_delete)}")
             else:
                 videos_to_keep.append(video)
         
