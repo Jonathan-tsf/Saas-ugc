@@ -177,6 +177,8 @@ def generate_step_variations_async(session_id, step_number, image_base64):
     """Generate 4 variations ONE BY ONE, updating DynamoDB after each"""
     step_config = TRANSFORMATION_STEPS[step_number - 1]
     total_variations = len(step_config['prompts'])
+    successful_variations = 0
+    all_errors = []
     
     for i, prompt in enumerate(step_config['prompts']):
         try:
@@ -205,22 +207,30 @@ def generate_step_variations_async(session_id, step_number, image_base64):
             
             # Update DynamoDB
             update_session_variation(session_id, step_number, i, variation_data, total_variations)
+            successful_variations += 1
             
             print(f"[{session_id}] ✓ Variation {i+1}/{total_variations} done")
             
         except Exception as e:
-            print(f"[{session_id}] ✗ Error variation {i}: {e}")
+            error_msg = str(e)
+            print(f"[{session_id}] ✗ Error variation {i}: {error_msg}")
+            all_errors.append(error_msg)
             
             error_data = {
                 'index': i,
                 'prompt': prompt,
-                'error': str(e)
+                'error': error_msg
             }
             
             update_session_variation(session_id, step_number, i, error_data, total_variations)
     
-    # Mark step as complete
-    mark_step_ready(session_id, step_number)
+    # Check if we have at least some successful variations
+    if successful_variations > 0:
+        # Mark step as ready (partial success is OK)
+        mark_step_ready(session_id, step_number)
+    else:
+        # ALL variations failed - mark as error
+        mark_step_error(session_id, step_number, all_errors)
 
 
 def update_session_variation(session_id, step_number, variation_index, variation_data, total_variations):
@@ -273,6 +283,30 @@ def mark_step_ready(session_id, step_number):
         print(f"Error marking step ready: {e}")
 
 
+def mark_step_error(session_id, step_number, errors):
+    """Mark step as error when all variations failed"""
+    try:
+        # Combine errors into a summary
+        error_summary = errors[0] if errors else "Unknown error"
+        if "quota" in error_summary.lower() or "429" in error_summary:
+            error_summary = "API quota exceeded. Please try again later (quotas reset daily)."
+        
+        jobs_table.update_item(
+            Key={'id': session_id},
+            UpdateExpression='SET #status = :status, progress = :prog, error_message = :err, updated_at = :updated',
+            ExpressionAttributeNames={'#status': 'status'},
+            ExpressionAttributeValues={
+                ':status': 'error',
+                ':prog': Decimal('0'),
+                ':err': error_summary,
+                ':updated': datetime.now().isoformat()
+            }
+        )
+        print(f"[{session_id}] Step {step_number} marked as ERROR: {error_summary}")
+    except Exception as e:
+        print(f"Error marking step as error: {e}")
+
+
 def get_transformation_session(event):
     """Get transformation session status - GET /api/admin/ambassadors/transform/session?session_id=XXX"""
     if not verify_admin(event):
@@ -304,8 +338,9 @@ def get_transformation_session(event):
             'success': True,
             'session_id': session_id,
             'name': session.get('name'),
-            'status': session.get('status'),  # generating, ready, completed
+            'status': session.get('status'),  # generating, ready, error, completed
             'progress': session.get('progress', 0),
+            'error_message': session.get('error_message'),  # Error message if status is 'error'
             'current_step': current_step,
             'step_name': step_config['name'],
             'total_steps': len(TRANSFORMATION_STEPS),
