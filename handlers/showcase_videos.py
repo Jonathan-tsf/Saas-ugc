@@ -952,8 +952,6 @@ def select_best_showcase_video(event):
                 videos_to_keep.append(video)
         
         print(f"[SELECT_VIDEO] Videos to keep: {len(videos_to_keep)}, to delete: {len(videos_to_delete)}")
-            else:
-                videos_to_keep.append(video)
         
         # Delete videos from S3
         for video in videos_to_delete:
