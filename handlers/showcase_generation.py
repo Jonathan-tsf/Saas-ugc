@@ -40,42 +40,48 @@ REPLICATE_API_URL = "https://api.replicate.com/v1/models/google/nano-banana-pro/
 # Number of showcase photos to generate
 NUM_SHOWCASE_PHOTOS = 15
 
-# Few-shot learning examples for scene descriptions
+# Few-shot learning examples for scene descriptions - OPTIMIZED FOR TIKTOK/INSTAGRAM REELS
 FEW_SHOT_EXAMPLES = """
-A. Face cam "TikTok talk" (SEULEMENT pour ces scènes, regard caméra approprié):
-- Scène TikTok face caméra: Assis sur une chaise moderne dans un salon épuré aux tons neutres, face à la caméra, mains posées naturellement sur les cuisses, buste légèrement penché vers l'avant en position d'écoute active, léger sourire confiant, fond mur blanc minimaliste avec plante verte floue, éclairage doux et naturel, ambiance lifestyle décontractée.
-- Scène TikTok face caméra: Assis au bord d'un canapé gris confortable dans un intérieur cosy moderne, une main qui gesticule légèrement comme pour expliquer quelque chose avec passion, expression calme et sincère, regard direct et engageant, ambiance conversation authentique entre amis.
-- Scène TikTok face caméra: Debout dans un espace lumineux et aéré, face caméra, pieds largeur d'épaules en position stable, mains liées devant le bassin en posture ouverte, expression neutre professionnelle, fond mur simple ou porte blanche, éclairage de studio naturel.
+=== CATÉGORIE A: HOOK SHOTS (accroche TikTok - regard caméra, scroll-stopping) ===
+- Scène hook face cam: Debout face caméra dans un salon moderne épuré, expression intriguée comme si on allait révéler un secret, une main levée près du visage en geste "attends", éclairage ring light doux, fond neutre flou, ambiance teaser TikTok viral hook.
+- Scène hook réaction: Assis sur canapé moderne, face caméra, expression surprise positive "wait what?!", mains ouvertes devant soi en geste de découverte, ambiance réaction authentique TikTok, éclairage naturel.
+- Scène hook confiance: Debout face caméra, bras croisés avec sourire confiant, posture assurée, regard direct engageant, fond minimaliste moderne, ambiance "let me tell you something" TikTok.
 
-B. Scènes avec ordinateur / bureau (REGARD SUR L'ÉCRAN, PAS la caméra):
-- Scène bureau travail productif: Assis à un bureau minimaliste en bois clair, laptop Apple ouvert, regard intensément focalisé sur l'écran avec concentration profonde, mains sur le clavier en position de frappe, profil trois-quarts, lumière naturelle de fenêtre, plante décorative en arrière-plan, ambiance entrepreneur digital productif.
-- Scène bureau concentration: Assis au bureau moderne, une main sur la souris ergonomique, regard hypnotiquement focalisé sur l'écran, expression de concentration intense et sérieuse, dos droit en bonne posture, ambiance travail créatif professionnel.
-- Scène bureau réflexion: Assis au bureau épuré, penché vers l'écran avec curiosité, une main sur le menton en position pensive, complètement absorbé par la lecture, ambiance étude ou recherche, éclairage chaud de lampe de bureau.
+=== CATÉGORIE B: PRODUCT SHOWCASE (mise en avant produit - regard sur le produit) ===
+- Scène unboxing excitement: Assis par terre ou sur canapé, ouvre une boîte en carton marron avec excitation, regarde le contenu avec émerveillement, mains qui sortent le produit délicatement, ambiance unboxing authentique ASMR TikTok.
+- Scène product reveal: Debout face caméra, tient le produit devant soi à hauteur de poitrine des deux mains, regarde le produit avec fierté puis lève les yeux vers caméra, geste de présentation, ambiance product reveal TikTok.
+- Scène product use: En action avec le produit (shaker qu'on secoue, pot qu'on ouvre, etc.), regard focalisé sur l'action, geste naturel d'utilisation, ambiance routine authentique GRWM.
+- Scène product close-up hold: Main tenant le produit face caméra en premier plan, visage légèrement flou en arrière-plan avec sourire subtil, focus sur le packaging, ambiance aesthetic product shot.
 
-C. Scènes cuisine / manger / boire (regard naturel sur l'activité):
-- Scène cuisine healthy préparation: Debout dans une cuisine moderne aux lignes épurées, comptoir en marbre blanc, regarde attentivement les ingrédients frais qu'elle prépare sur le plan de travail, expression concentrée de chef amateur, légumes colorés et ustensiles, lumière naturelle abondante, ambiance lifestyle healthy nutrition.
-- Scène repas healthy: Assis à une table en bois naturel, regarde son assiette colorée healthy, fourchette à la main prêt à manger, moment naturel authentique du repas, smoothie vert à côté, ambiance alimentation équilibrée bien-être.
-- Scène smoothie preparation: Debout dans cuisine lumineuse, verse soigneusement un smoothie protéiné vert dans un verre élégant, regarde précisément ce qu'il fait, fruits frais autour, lumière naturelle matinale, ambiance routine fitness nutrition.
+=== CATÉGORIE C: FITNESS ACTION SHOTS (mouvements dynamiques - regard sur l'exercice) ===
+- Scène squat gym: En position de squat profond parfait, barre sur les épaules ou poids dans les mains, regard droit devant concentré, expression d'effort contrôlé, salle de gym moderne en arrière-plan flou, ambiance training intense.
+- Scène deadlift pull: En position de soulevé de terre, dos droit, regard vers le sol focalisé, expression de concentration pure, muscles engagés visibles, ambiance powerlifting strength.
+- Scène dumbbell curl: Debout en position stable, curl avec haltère, regarde le mouvement de son bras, expression concentrée, ambiance arm workout pump.
+- Scène push-up dynamic: En position de pompe parfaite, corps gainé, regard vers le sol, expression déterminée, tapis de sport au sol, ambiance home workout bodyweight.
+- Scène treadmill run: Sur tapis de course en action, léger mouvement de course, regard droit devant, écouteurs dans les oreilles, expression endurance focus, ambiance cardio session.
 
-D. Scènes fitness / gym (REGARD SUR L'EXERCICE ou droit devant, PAS la caméra):
-- Scène gym repos fitness: Debout face au miroir d'une salle de sport moderne équipée, regarde son reflet pour vérifier sa posture, position de repos entre les séries d'exercices, épaules détendues, ambiance training musculation, équipements fitness en arrière-plan flou.
-- Scène gym concentration: Assis sur un banc de musculation professionnel, regarde droit devant avec détermination, expression concentrée et focalisée, repos entre exercices de force, serviette sur l'épaule, ambiance workout intense.
-- Scène stretching récupération: Debout dans espace fitness lumineux, étirements post-workout, regarde vers le sol en suivant son mouvement, expression calme et focalisée, muscles en extension, ambiance wellness récupération.
-- Scène exercice effort: En position de planche parfaite ou exercice au sol, regard déterminé vers le sol, concentration totale sur l'effort physique, tapis de yoga, ambiance home workout training.
+=== CATÉGORIE D: GYM LIFESTYLE (ambiance salle - regard naturel varié) ===
+- Scène gym entrance: Franchit la porte d'une salle de gym moderne, sac de sport sur l'épaule, regard vers l'intérieur avec motivation, expression déterminée prêt à s'entraîner, ambiance "let's get it" motivation.
+- Scène gym mirror selfie style: Debout devant grand miroir de gym, téléphone baissé (pas en train de prendre photo), regarde son reflet pour checker sa posture, expression neutre assessment, équipements fitness en arrière-plan.
+- Scène gym rest bench: Assis sur banc de musculation, bouteille d'eau ou shaker en main, regarde le shaker/bouteille, expression repos récupération, serviette sur épaule, ambiance inter-set recovery.
+- Scène gym water break: Debout dans gym, boit une gorgée d'eau ou shake, tête légèrement en arrière, ambiance hydration break workout.
 
-E. Debout / positions simples (mélange regard caméra et regard naturel):
-- Scène pensive casual: Debout dans salon moderne, bras croisés sur la poitrine en position réflexive, regarde légèrement sur le côté avec expression pensive, ambiance réflexion créative, éclairage doux lifestyle.
-- Scène contemplation fenêtre: Debout près d'une grande fenêtre lumineuse, une main dans la poche de façon décontractée, regarde le paysage par la fenêtre avec sérénité, profil naturel artistique, lumière dorée sur le visage, ambiance moment de calme mindfulness.
-- Scène téléphone relax: Debout appuyé contre un mur texturé, regarde son téléphone dans sa main avec intérêt, scroll décontracté, posture relaxée, ambiance digital lifestyle quotidien.
+=== CATÉGORIE E: KITCHEN/NUTRITION (préparation - regard sur l'action) ===
+- Scène smoothie blend: Debout devant blender dans cuisine moderne, verse ingrédients dans le blender, regarde ce qu'on fait, expression concentration recette, fruits et légumes sur comptoir, ambiance healthy meal prep.
+- Scène protein shake prep: Debout dans cuisine, verse une dose de poudre protéinée dans shaker, regarde précisément le dosage, expression focus routine, ambiance post-workout nutrition.
+- Scène meal prep container: Assis ou debout devant comptoir, remplit des containers de meal prep, regarde ce qu'on fait, expression organisée productive, légumes et protéines visibles, ambiance fitness meal prep sunday.
+- Scène fridge healthy: Debout devant frigo ouvert, prend un produit healthy du frigo, regarde les options, expression choix santé, intérieur frigo coloré légumes fruits, ambiance clean eating lifestyle.
 
-F. Téléphone / scroll (regard sur le téléphone):
-- Scène scroll canapé: Assis confortablement sur un canapé moelleux, téléphone dans les deux mains, regarde l'écran avec attention, expression concentrée et absorbée, jambes repliées, ambiance chill digital, coussins et plaid autour.
-- Scène message debout: Debout en position naturelle, téléphone dans une main, tape activement un message, regard fixé sur l'écran avec concentration, ambiance communication connectée moderne.
+=== CATÉGORIE F: LIFESTYLE CASUAL (moments authentiques - regard naturel) ===
+- Scène morning stretch: Debout près du lit ou fenêtre, étirement matinal bras levés, regarde par la fenêtre, expression sereine réveil, lumière dorée morning, ambiance morning routine wellness.
+- Scène couch chill: Assis confortablement sur canapé avec jambes repliées, téléphone en main, regarde l'écran détendu, expression relaxed scroll, plaid cozy autour, ambiance evening chill lifestyle.
+- Scène balcony moment: Debout sur balcon ou terrasse, tasse ou verre en main, regarde l'horizon/vue, expression paisible contemplation, lumière naturelle flatteuse, ambiance mindful moment.
+- Scène walking outdoor: En mouvement de marche dans environnement urbain ou parc, regard vers l'avant, expression confiante stride, vêtements athleisure, ambiance active lifestyle city.
 
-G. Scènes lifestyle naturelles:
-- Scène lecture détente: Assis dans un fauteuil confortable du salon cosy, lit un livre captivant ou magazine lifestyle, regard complètement absorbé par les pages, expression sereine, plante verte et lumière naturelle, ambiance self-care intellectual wellness.
-- Scène fenêtre contemplation: Debout près d'une grande baie vitrée lumineuse, regarde dehors vers l'horizon avec expression pensive, profil pensif artistique, lumière naturelle douce sur le visage, ambiance moment introspection mindfulness.
-- Scène écriture créative: Assis à un bureau épuré avec un carnet élégant ouvert, écrit quelque chose avec concentration, regard focalisé sur le carnet, stylo élégant dans la main, ambiance productivité créative journaling.
+=== CATÉGORIE G: TALKING HEAD VARIATIONS (face cam - pour voiceover/talking) ===
+- Scène podcast style: Assis sur chaise ou canapé, légèrement penché en avant engagé, face caméra, mains qui gesticulent naturellement en parlant, expression animée mais authentique, fond neutre professionnel, ambiance storytelling TikTok.
+- Scène standing explain: Debout face caméra, gestes des mains explicatifs, expression pédagogique sincère, ambiance tutorial how-to TikTok.
+- Scène seated casual talk: Assis décontracté par terre ou sur pouf, face caméra, position relax jambes croisées, expression amicale conversation, ambiance authentic connection TikTok.
 """
 
 
@@ -275,67 +281,97 @@ PROFIL DE L'AMBASSADEUR:
 Utilise ce profil pour adapter le style et l'ambiance des scènes à la personnalité de l'ambassadeur.
 """
     
-    system_prompt = f"""Tu es un expert en création de contenu pour TikTok et réseaux sociaux. 
-Tu dois générer exactement 15 descriptions de scènes TRÈS DÉTAILLÉES pour des photos d'ambassadeurs UGC.
+    system_prompt = f"""Tu es un EXPERT en création de contenu TikTok et Instagram Reels pour des marques fitness/lifestyle.
+
+OBJECTIF: Générer 15 scènes UNIQUES et DIVERSIFIÉES pour un ambassadeur UGC. Ces images seront utilisées pour créer des Reels viraux.
 {ambassador_context}{product_context}
-RÈGLES CRITIQUES:
-1. Le regard caméra est UNIQUEMENT pour les scènes "face cam TikTok talk" (max 4-5 scènes sur 15)
-2. Pour les autres scènes: regard NATUREL sur l'activité (écran d'ordi, téléphone, livre, exercice, nourriture, etc.)
-3. PAS de selfie (la caméra filme, pas de téléphone tenu pour se prendre en photo)
-4. PAS d'expressions exagérées (pas de surprise, colère, etc.)
-5. Expressions autorisées: neutre, léger sourire, concentré, calme, sérieux, pensif
-6. La tenue doit être cohérente avec le décor (fitness pour la gym, casual pour la maison, etc.)
-7. Tu ne peux utiliser QUE ces catégories de tenues: {categories_str}
-8. Répartis équitablement les catégories sur les 15 photos
-{product_instructions}
-RÈGLE ABSOLUE - ZÉRO TEXTE:
-- AUCUN texte visible dans la scène (pas de marques, pas de logos, pas d'écritures)
-- Pas de valeurs sur les poids de gym (haltères sans chiffres)
-- Pas de marques sur les vêtements, équipements, appareils
-- Pas de texte sur les écrans d'ordinateur ou téléphone
-- Environnement complètement neutre sans aucune inscription
+
+=== RÈGLES FONDAMENTALES TIKTOK/REELS ===
+
+1. DIVERSITÉ OBLIGATOIRE - Chaque scène doit être UNIQUE:
+   - JAMAIS deux scènes similaires (pas 2x miroir gym, pas 2x assis canapé, etc.)
+   - Varier: positions (debout/assis/en mouvement), lieux, actions, angles
+   
+2. TYPES DE SCÈNES À INCLURE (mix obligatoire sur 15 photos):
+   - 2-3 HOOK SHOTS: Face caméra accrocheuse pour les intros TikTok
+   - 2-3 PRODUCT SHOTS: Unboxing, produit en main, utilisation du produit
+   - 3-4 ACTION FITNESS: Exercices variés (squat, curl, deadlift, cardio, stretching)
+   - 2-3 LIFESTYLE: Cuisine, nutrition, préparation repas
+   - 3-4 B-ROLL CLIPS: Moments naturels (entrée gym, marche, pause eau, balcon)
+
+3. INTÉGRATION PRODUIT INTELLIGENTE:
+   - Le produit n'est PAS dans TOUTES les photos (seulement 30-50%)
+   - Scènes AVEC produit: unboxing, tenir le produit, utiliser le produit (shake, etc.)
+   - Scènes SANS produit: exercices, lifestyle, talking head (l'univers reste cohérent)
+
+4. COHÉRENCE MARQUE FITNESS/WELLNESS:
+   - Même sans produit visible, l'univers reste fitness/health/lifestyle
+   - Décors: gym moderne, cuisine healthy, intérieur épuré moderne
+   - Ambiance: motivation, discipline, bien-être, authenticité
+
+5. REGARD ET EXPRESSION:
+   - Face caméra: UNIQUEMENT pour hook shots et talking head (max 5/15)
+   - Autres scènes: regard sur l'action (exercice, produit, téléphone, etc.)
+   - Expressions: concentré, déterminé, confiant, serein (PAS d'exagération)
+
+6. PAS DE SCÈNES INUTILES:
+   - ❌ Assis à un bureau d'ordinateur (pas fitness)
+   - ❌ Debout immobile devant miroir (ennuyeux)
+   - ❌ Lecture de livre (pas dynamique)
+   - ❌ Regarder par la fenêtre (pas d'action)
+   - ✅ En train de FAIRE quelque chose d'actionnable
 
 La personne est {gender_article}.
+Catégories de tenues disponibles: {categories_str}
 
-FORMAT DESCRIPTION REQUIS (TRÈS IMPORTANT):
-Chaque description doit contenir OBLIGATOIREMENT:
-1. Un PRÉFIXE de catégorie (ex: "Scène fitness gym:", "Scène bureau travail:", "Scène lifestyle relaxation:")
-2. Le DÉCOR détaillé (type de pièce, couleurs, meubles, lumière, ambiance)
-3. La POSE précise (position du corps, des mains, orientation)
-4. La DIRECTION DU REGARD (vers quoi la personne regarde exactement)
-5. L'EXPRESSION faciale
-6. L'AMBIANCE générale avec des mots-clés lifestyle (fitness, wellness, productivity, healthy, etc.)
-7. Si un produit est à intégrer: COMMENT et OÙ il apparaît dans la scène
-
-MOTS-CLÉS À INTÉGRER selon la scène:
-- Fitness/Gym: workout, training, musculation, exercise, fitness, gym, sport, athletic, wellness
-- Bureau/Travail: productivity, work, business, professional, entrepreneur, digital, creative
-- Cuisine/Food: healthy, nutrition, cooking, food, meal, smoothie, preparation, lifestyle
-- Lifestyle: relaxation, mindfulness, self-care, wellness, lifestyle, modern, cozy, authentic
+RÈGLE ABSOLUE - ZÉRO TEXTE VISIBLE:
+- Aucun texte, logo, marque, chiffre dans l'image
+- Poids de gym sans valeurs visibles
+- Écrans vides ou couleurs abstraites
 
 IMPORTANT: Tu dois UNIQUEMENT répondre avec un JSON valide, sans aucun texte avant ou après."""
 
-    user_prompt = f"""Génère 15 descriptions de scènes TRÈS DÉTAILLÉES pour un ambassadeur UGC.
+    user_prompt = f"""Génère 15 descriptions de scènes UNIQUES et DIVERSIFIÉES pour un ambassadeur UGC fitness/lifestyle.
 
 Catégories de tenues disponibles: {categories_str}
 
-Exemples de scènes inspirantes (SUIT CE FORMAT PRÉCIS):
+=== EXEMPLES DE SCÈNES (inspire-toi mais ne copie pas) ===
 {FEW_SHOT_EXAMPLES}
 
-DISTRIBUTION DU REGARD (sur 15 photos):
-- 4-5 photos: regard caméra (scènes "TikTok talk" face cam uniquement)
-- 10-11 photos: regard naturel sur l'activité (écran, exercice, livre, téléphone, fenêtre, etc.)
+=== DISTRIBUTION OBLIGATOIRE SUR 15 PHOTOS ===
+Tu DOIS inclure EXACTEMENT ce mix de scènes:
 
-Réponds UNIQUEMENT avec un JSON valide au format suivant (sans markdown, sans ```json, juste le JSON pur):
+🎯 HOOK SHOTS (2-3 photos) - Face caméra, scroll-stopping:
+- Expression intriguée/confiante, regard caméra direct
+- Pour intros TikTok "wait for it" ou "let me tell you"
+
+📦 PRODUCT SHOTS (3-4 photos si produits disponibles):
+- Unboxing: ouvre une boîte, découvre le produit
+- Product hold: tient le produit devant soi, le présente
+- Product use: utilise le produit (secoue shaker, ouvre pot, etc.)
+- Close-up: produit en premier plan, visage flou derrière
+
+💪 FITNESS ACTION (4-5 photos):
+- Exercices VARIÉS: squat, deadlift, curl, push-up, planche, treadmill
+- PAS de poses statiques miroir - du MOUVEMENT
+- Regard sur l'exercice, expression concentrée/effort
+
+🥗 KITCHEN/NUTRITION (2-3 photos):
+- Prépare smoothie/shake protéiné
+- Meal prep, prend quelque chose du frigo
+- Verse ingrédients, regarde ce qu'on fait
+
+🎬 B-ROLL/LIFESTYLE (3-4 photos):
+- Entre dans la gym (bag sur l'épaule)
+- Pause hydratation (boit eau/shake)
+- Marche outdoor, stretch matinal
+- Talking head casual (pour voiceover)
+
+=== FORMAT JSON REQUIS ===
+Réponds UNIQUEMENT avec ce JSON (sans markdown):
 {{
     "picture_1": {{
-        "position": "Scène [catégorie]: Description TRÈS détaillée de la scène avec décor, pose, expression, direction du regard, ambiance, mots-clés lifestyle, et si applicable: description du produit visible et comment il est intégré...",
-        "outfit_category": "casual",
-        "has_product": true,
-        "product_name": "Nom du produit si applicable ou null"
-    }},
-    "picture_2": {{
-        "position": "Scène [catégorie]: ...",
+        "position": "Scène [type]: Description détaillée 50+ mots avec décor, pose, action, regard, expression, ambiance...",
         "outfit_category": "fitness",
         "has_product": false,
         "product_name": null
@@ -343,16 +379,14 @@ Réponds UNIQUEMENT avec un JSON valide au format suivant (sans markdown, sans `
     ...jusqu'à picture_15
 }}
 
-CHECKLIST POUR CHAQUE DESCRIPTION:
-✅ Préfixe "Scène [type]:"
-✅ Minimum 50 mots par description
-✅ Décor détaillé (couleurs, meubles, lumière)
-✅ Pose précise du corps
-✅ Direction du regard claire
-✅ Expression faciale
-✅ Mots-clés lifestyle/fitness/wellness intégrés
-✅ ZÉRO texte, marque, logo, chiffre visible
-✅ Si produit: description claire de son intégration"""
+=== CHECKLIST ANTI-RÉPÉTITION ===
+Avant de finaliser, vérifie:
+❌ Pas 2 scènes "devant miroir"
+❌ Pas 2 scènes "assis au bureau"
+❌ Pas 2 scènes identiques (même pose + même lieu)
+✅ Mix varié de positions: debout, assis, en mouvement, au sol
+✅ Mix varié de lieux: gym, cuisine, salon, extérieur
+✅ Mix varié d'actions: exercice, prépare, tient produit, parle caméra"""
 
     try:
         request_body = {
