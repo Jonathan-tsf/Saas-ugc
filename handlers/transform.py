@@ -9,6 +9,7 @@ import urllib.request
 import urllib.error
 from datetime import datetime
 from concurrent.futures import ThreadPoolExecutor, as_completed
+from io import BytesIO
 
 from config import (
     response, decimal_to_python, verify_admin,
@@ -18,6 +19,62 @@ from handlers.gemini_client import generate_image as gemini_generate_image
 
 # Replicate API URL for fallback (same model as showcase)
 REPLICATE_API_URL = "https://api.replicate.com/v1/models/google/imagen-3/predictions"
+
+# Valid aspect ratios for Gemini (map to closest supported ratio)
+SUPPORTED_ASPECT_RATIOS = ["1:1", "2:3", "3:2", "3:4", "4:3", "4:5", "5:4", "9:16", "16:9", "21:9"]
+
+
+def detect_image_aspect_ratio(image_base64: str) -> str:
+    """
+    Detect the aspect ratio of a base64-encoded image and return the closest supported ratio.
+    Returns aspect ratio string like "9:16", "16:9", "1:1", etc.
+    """
+    try:
+        # Try to use PIL if available
+        from PIL import Image
+        
+        # Decode base64 to bytes
+        image_data = base64.b64decode(image_base64)
+        img = Image.open(BytesIO(image_data))
+        width, height = img.size
+        
+        # Calculate actual ratio
+        actual_ratio = width / height
+        
+        # Map ratios to their numeric values
+        ratio_values = {
+            "1:1": 1.0,
+            "2:3": 2/3,      # ~0.67 (portrait)
+            "3:2": 3/2,      # ~1.5 (landscape)
+            "3:4": 3/4,      # 0.75 (portrait)
+            "4:3": 4/3,      # ~1.33 (landscape)
+            "4:5": 4/5,      # 0.8 (portrait)
+            "5:4": 5/4,      # 1.25 (landscape)
+            "9:16": 9/16,    # ~0.56 (portrait - phone)
+            "16:9": 16/9,    # ~1.78 (landscape - video)
+            "21:9": 21/9,    # ~2.33 (ultrawide)
+        }
+        
+        # Find closest match
+        closest_ratio = "1:1"
+        min_diff = float('inf')
+        
+        for ratio_str, ratio_val in ratio_values.items():
+            diff = abs(actual_ratio - ratio_val)
+            if diff < min_diff:
+                min_diff = diff
+                closest_ratio = ratio_str
+        
+        print(f"[AspectRatio] Image size: {width}x{height}, ratio: {actual_ratio:.2f}, closest: {closest_ratio}")
+        return closest_ratio
+        
+    except ImportError:
+        print("[AspectRatio] PIL not available, defaulting to 1:1")
+        return "1:1"
+    except Exception as e:
+        print(f"[AspectRatio] Error detecting aspect ratio: {e}, defaulting to 1:1")
+        return "1:1"
+
 
 # Transformation steps configuration - FEMALE
 TRANSFORMATION_STEPS_FEMALE = [
@@ -134,7 +191,7 @@ def get_transformation_steps(gender='female'):
     return TRANSFORMATION_STEPS_FEMALE
 
 
-def call_replicate_api_sync(image_base64, prompt):
+def call_replicate_api_sync(image_base64, prompt, aspect_ratio="1:1"):
     """
     Call Replicate API as fallback for image transformation.
     This is SYNCHRONOUS - waits for result (up to 120 seconds).
@@ -143,7 +200,7 @@ def call_replicate_api_sync(image_base64, prompt):
     if not REPLICATE_API_KEY:
         raise Exception("REPLICATE_API_KEY not configured for fallback")
     
-    print(f"Using Replicate fallback for transformation...")
+    print(f"Using Replicate fallback for transformation (aspect_ratio={aspect_ratio})...")
     
     headers = {
         "Authorization": f"Bearer {REPLICATE_API_KEY}",
@@ -158,7 +215,7 @@ def call_replicate_api_sync(image_base64, prompt):
         "input": {
             "prompt": prompt,
             "image": image_data_uri,
-            "aspect_ratio": "1:1",
+            "aspect_ratio": aspect_ratio,
             "output_format": "png",
             "safety_tolerance": 2
         }
@@ -197,22 +254,34 @@ def call_replicate_api_sync(image_base64, prompt):
         raise
 
 
-def call_nano_banana_api(image_base64, prompt, use_fallback=True):
+def call_nano_banana_api(image_base64, prompt, use_fallback=True, preserve_aspect_ratio=True):
     """Call Gemini API for image transformation with Vertex AI + Replicate fallback
     
     Uses gemini_client which handles:
     1. Google AI Studio (primary)
     2. Vertex AI (fallback when quota exceeded)
     3. If both fail, falls back to Replicate
+    
+    Args:
+        image_base64: Base64-encoded source image
+        prompt: Transformation prompt
+        use_fallback: Whether to use Replicate as final fallback
+        preserve_aspect_ratio: Whether to preserve original image aspect ratio
     """
+    
+    # Detect aspect ratio from source image if needed
+    if preserve_aspect_ratio:
+        aspect_ratio = detect_image_aspect_ratio(image_base64)
+    else:
+        aspect_ratio = "1:1"
     
     # Try Gemini (with automatic Vertex AI fallback via gemini_client)
     try:
-        print(f"Calling Gemini for transformation (with Vertex AI fallback)...")
+        print(f"Calling Gemini for transformation (with Vertex AI fallback), aspect_ratio={aspect_ratio}...")
         result = gemini_generate_image(
             prompt=prompt,
             reference_images=[image_base64],
-            aspect_ratio="1:1",
+            aspect_ratio=aspect_ratio,
             image_size="1K"
         )
         
@@ -232,10 +301,10 @@ def call_nano_banana_api(image_base64, prompt, use_fallback=True):
         else:
             raise
     
-    # Fallback to Replicate
+    # Fallback to Replicate (pass the same aspect ratio)
     if use_fallback and REPLICATE_API_KEY:
-        print("Attempting Replicate fallback for transformation...")
-        return call_replicate_api_sync(image_base64, prompt)
+        print(f"Attempting Replicate fallback for transformation (aspect_ratio={aspect_ratio})...")
+        return call_replicate_api_sync(image_base64, prompt, aspect_ratio)
     
     raise Exception("All image generation APIs failed or not configured")
 
