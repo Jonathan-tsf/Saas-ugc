@@ -20,8 +20,8 @@ from handlers.gemini_client import generate_image
 # DynamoDB table for shorts
 shorts_table = dynamodb.Table('nano_banana_shorts')
 
-# AWS Bedrock Claude model for scripting
-BEDROCK_MODEL_ID = "us.anthropic.claude-sonnet-4-5-20250929-v1:0"
+# AWS Bedrock Claude Opus 4.5 pour le scripting (meilleure réflexion sur les durées)
+BEDROCK_MODEL_ID = "anthropic.claude-opus-4-5-20251101-v1:0"
 
 
 def download_image_as_base64(image_url: str) -> str:
@@ -34,12 +34,6 @@ def download_image_as_base64(image_url: str) -> str:
     except Exception as e:
         print(f"Error downloading image: {e}")
         raise
-
-# DynamoDB table for shorts
-shorts_table = dynamodb.Table('nano_banana_shorts')
-
-# AWS Bedrock Claude model for scripting
-BEDROCK_MODEL_ID = "us.anthropic.claude-sonnet-4-5-20250929-v1:0"
 
 
 def get_ambassadors_for_shorts(event):
@@ -224,14 +218,14 @@ def generate_short_script(event):
         outfits_text += f"- ID: {o['id']} | Description: {o['prompt'] or o['scene_type'] or 'Tenue sport'}\n"
     
     # Build the prompt for Claude
-    system_prompt = """Tu es un expert en création de contenus TikTok AUTHENTIQUES pour le fitness et le lifestyle.
-Tu génères des scripts de vidéos courts (reels/shorts) avec des scènes précises.
+    system_prompt = """Tu es un expert SENIOR en création de contenus TikTok pour le fitness et le lifestyle.
+Tu génères des scripts de vidéos avec des durées PRÉCISES et RÉFLÉCHIES pour chaque scène.
 
 TON RÔLE:
 - Analyser le profil de l'ambassadeur (description, genre)
 - Choisir le MEILLEUR concept de vidéo pour cet ambassadeur
-- Décider du nombre de scènes optimal (3-8 scènes)
-- Décider de la durée totale (15-60 secondes)
+- Décider du nombre de scènes optimal (4-8 scènes)
+- CALCULER la durée de chaque scène selon son CONTENU (pas au hasard!)
 - Choisir les hashtags tendances pertinents
 - Assigner les bonnes tenues aux bonnes scènes
 
@@ -241,13 +235,49 @@ STYLE OBLIGATOIRE:
 - Comme si filmé par l'ambassadrice elle-même
 - Évite: "professional photo", "commercial", "brand ambassador", "high quality", "perfect lighting"
 
-DURÉES RÉALISTES POUR TIKTOK (TRÈS IMPORTANT):
-- Hook/intro: 2-3 secondes MAX (doit capter l'attention immédiatement)
-- Scène d'action: 3-5 secondes (workout, préparation, etc.)
-- Transition: 2-3 secondes
-- Outro/CTA: 2-4 secondes MAX
-- JAMAIS plus de 6 secondes pour une seule scène!
-- Une vidéo TikTok de 30s = environ 8-12 scènes courtes et dynamiques
+⚠️ DURÉES RÉFLÉCHIES - RÈGLES STRICTES (PAS AU HASARD!):
+
+CHAQUE DURÉE DOIT CORRESPONDRE AU CONTENU DE LA SCÈNE:
+
+📍 HOOKS/INTRO (capter l'attention):
+- Réveil/ouvre les yeux → 1.5s (geste instantané)
+- Regarde la caméra → 1s
+- Texte qui apparaît → 2s (temps de lecture)
+- Question posée → 2-2.5s
+
+📍 PRÉPARATION/LIFESTYLE:
+- Attrape son téléphone → 1.5s
+- Check le téléphone/scroll → 2-3s (selon si on voit l'écran)
+- Boit un café/shaker → 2s (une gorgée)
+- S'habille (enfile un haut) → 2-3s
+- Prépare son sac → 2.5s
+- Se regarde dans le miroir → 2s
+
+📍 MOUVEMENT/DÉPLACEMENT:
+- Se lève du lit → 2s
+- Marche vers la porte → 2s
+- Entre dans la salle → 2s
+- S'approche d'une machine → 2s
+
+📍 WORKOUT/EXERCICES:
+- 1-2 répétitions d'un exercice → 3s
+- 2-3 répétitions → 4s
+- Flexing/pose → 2s
+- Préparation avant exercice → 2s
+
+📍 TRANSITIONS:
+- Cut simple → 0.5s
+- Swipe/effet → 1s
+
+📍 OUTRO:
+- Thumbs up/smile → 1.5s
+- Logo/CTA → 2s
+- Dernier regard caméra → 1.5s
+
+🚨 INTERDIT:
+- 2s pour "réveil" (trop long! c'est 1-1.5s)
+- 5s pour "marche" (trop long! c'est 2s)
+- Durées identiques pour toutes les scènes (chaque scène a sa durée LOGIQUE)
 
 RÈGLES POUR prompt_image (TRÈS IMPORTANT):
 1. EN ANGLAIS
@@ -290,16 +320,23 @@ DATE: {datetime.now().strftime('%d/%m/%Y')}
 
 DÉCIDE TOI-MÊME:
 - Le concept/thème de la vidéo
-- Le nombre de scènes (entre 6 et 12 pour une vidéo dynamique)
-- La durée totale (entre 20 et 45 secondes - format TikTok optimal)
+- Le nombre de scènes (entre 5 et 8 scènes - court et impactant)
+- La durée totale (SOMME des durées = généralement 15-30 secondes)
 - Les hashtags tendances (5-10)
 - Comment utiliser au mieux les tenues
+
+⚠️ AVANT DE GÉNÉRER, RÉFLÉCHIS:
+Pour chaque scène, demande-toi: "Combien de temps dure réellement cette action dans la vraie vie?"
+- Un réveil = instantané (1-1.5s)
+- Une gorgée de café = 2s
+- 2-3 squats = 3-4s
+- Un pas vers la porte = 2s
 
 Génère le JSON suivant:
 {{
   "title": "Titre accrocheur du short",
   "concept": "Explication du concept choisi",
-  "total_duration": <nombre en secondes - entre 20 et 45>,
+  "total_duration": <nombre en secondes - SOMME des durées de toutes les scènes>,
   "hashtags": ["#hashtag1", "#hashtag2", ...],
   "target_platform": "tiktok" ou "instagram" ou "both",
   "mood": "energetic/chill/motivational/aesthetic/funny",
@@ -309,7 +346,8 @@ Génère le JSON suivant:
       "order": 1,
       "scene_type": "intro/workout/transition/lifestyle/pose/outro",
       "description": "Description courte de la scène",
-      "duration": <2-5 secondes MAX par scène>,
+      "duration": <DURÉE CALCULÉE selon le contenu - voir règles ci-dessus>,
+      "duration_reasoning": "<Explique pourquoi cette durée: ex: 'ouvre les yeux = geste instantané = 1.5s'>",
       "prompt_image": "Put this person [action] in [lieu]. [mood/style] - TOUJOURS commencer par 'Put this person'",
       "prompt_video": "La personne [action dynamique]. Caméra fixe.",
       "outfit_id": "<ID de la tenue à utiliser>",
@@ -319,12 +357,15 @@ Génère le JSON suivant:
   ]
 }}
 
-RAPPELS CRITIQUES:
+⚠️ RAPPELS CRITIQUES:
 1. prompt_image: TOUJOURS commencer par "Put this person", max 20 mots, style AESTHETIC
-2. Durées: 2-5 secondes par scène, JAMAIS plus de 6s
-3. Hook (intro): 2-3s pour capter l'attention
-4. JAMAIS "messy", "professional photo", description physique de la personne
-5. L'image de référence de la personne sera fournie à l'IA"""
+2. DURÉES: Chaque durée DOIT être justifiée par le contenu (pas de durées aléatoires!)
+3. "réveil/ouvre les yeux" = 1-1.5s MAX (c'est instantané!)
+4. "marche/déplacement" = 2s MAX
+5. "exercice" = 3-4s pour montrer 2-3 reps
+6. JAMAIS "messy", "professional photo", description physique de la personne
+7. L'image de référence de la personne sera fournie à l'IA
+8. total_duration = SOMME de toutes les durées de scènes"""
 
     try:
         request_body = {
