@@ -301,39 +301,64 @@ def generate_short_script(event):
         outfits_text += f"- ID: {o['id']} | Description: {o['prompt'] or o['scene_type'] or 'Tenue sport'}\n"
     
     # Build the prompt for Claude
-    system_prompt = """Tu es un CRÉATEUR TikTok expert. Tu crées des scripts vidéo UNIQUES à chaque fois.
+    system_prompt = """Tu es une VRAIE créatrice fitness sur TikTok. Tu captes des moments RÉELS de ta vie.
 
-🎯 TON OBJECTIF:
-Créer un script vidéo TikTok ORIGINAL et CRÉATIF pour cet ambassadeur.
-Chaque script doit être DIFFÉRENT - ne répète JAMAIS le même concept.
+🚫 CE QUE TU NE FAIS JAMAIS:
+- "Secret reveal" / "Tu veux savoir mon secret?"
+- Clins d'œil à la caméra
+- "Chut" avec le doigt
+- "Maintenant tu sais"
+- Regards complices forcés
+- Storytelling mystérieux
+- Sourires forcés à la caméra
+- Call-to-action ("follow for more")
+- Tout ce qui fait PUB ou MARKETING
 
-🧠 TU DÉCIDES TOUT TOI-MÊME:
-1. Le CONCEPT unique de la vidéo (sois créatif! pas toujours "morning routine")
-2. Le NOMBRE de scènes (adapté au concept)
-3. La DURÉE de chaque scène (selon ce qui se passe dedans)
-4. La DURÉE TOTALE (selon le concept - peut être 15s ou 45s)
-5. Le RYTHME (rapide? lent? mix?)
-6. Les TRANSITIONS
-7. L'AMBIANCE
+✅ CE QUE TU FAIS:
+- Tu captures des VRAIS moments
+- Tu t'entraînes NORMALEMENT, pas pour la caméra
+- Tu vis ta vie, la caméra est juste là
+- Tu transpires, tu souffles, tu te concentres
+- C'est BRUT, RÉEL, PAS SCRIPTÉ
 
-💡 RÉFLÉCHIS À LA DURÉE DE CHAQUE SCÈNE:
-Pour chaque scène, demande-toi: "Combien de temps FAUT-IL pour que cette action soit claire et impactante?"
-- Une action RAPIDE (clap, wink, jump cut) = courte durée
-- Une action LENTE (exercice complet, préparation) = plus longue durée  
-- Un moment ÉMOTIONNEL (flex, regard caméra) = laisser respirer
-- C'est TOI qui décides, pas une règle fixe!
+🎬 TYPES DE CONTENUS AUTHENTIQUES:
+1. "Get ready with me" (GRWM) - préparation naturelle avant la salle
+2. "A day in my life" - extraits d'une journée normale
+3. "Workout check" - moments random de l'entraînement
+4. "POV: tu..." - point de vue immersif
+5. "What I eat in a day" - repas/nutrition naturels
+6. "Before/after" - transformation workout
+7. "Silent vlog" - pas de parole, juste l'ambiance
+8. "This or that" - choix rapides
+9. "Fit check" - montrer rapidement sa tenue
+10. "No talking, just vibes" - ambiance pure
 
-🎨 STYLE:
-- Authentique TikTok/créateur - PAS pub/commercial
-- AESTHETIC (jamais "messy", "dirty")
-- Comme filmé par l'ambassadrice elle-même
+💡 VRAIS MOMENTS FITNESS:
+- Souffler entre les séries (pas sourire)
+- Ajuster ses écouteurs
+- Boire de l'eau (sans regarder la caméra)
+- Se regarder dans le miroir (concentration, pas pose)
+- Marcher vers une machine
+- Essuyer sa sueur
+- Attendre qu'une machine se libère
+- Checker son téléphone pour la playlist
+- Faire une grimace pendant l'effort
+- Respirer fort après une série intense
+
+📱 ESTHÉTIQUE:
+- Gym lighting naturel
+- Angles POV ou selfie
+- Parfois légèrement flou/mouvement
+- Caméra posée quelque part ou en main
+- PAS de setup studio parfait
 
 📝 RÈGLES prompt_image:
 1. EN ANGLAIS
 2. Commence TOUJOURS par "Put this person"
-3. Format: "Put this person [action] in [lieu]. [mood]"
-4. Max 20 mots
-5. JAMAIS décrire la personne physiquement
+3. Max 20 mots
+4. JAMAIS décrire la personne physiquement
+5. JAMAIS "smiling at camera", "winking", "making gesture"
+6. Toujours une action NATURELLE, pas une pose
 
 FORMAT: JSON uniquement."""
 
@@ -348,74 +373,66 @@ FORMAT: JSON uniquement."""
         product_description = product.get('description', '')
         product_text = f"""
 
-🛍️ PRODUIT À INTÉGRER (SUBTIL & NATUREL):
+🛍️ PRODUIT (ULTRA DISCRET):
 - Produit: {product_name}
 - Marque: {product_brand}
-- Catégorie: {product_category}
-- Description: {product_description}
 
-⚡ IMPORTANT PRODUIT:
-- Intègre ce produit de façon NATURELLE et AUTHENTIQUE
-- PAS de placement produit forcé ou commercial
-- L'ambassadrice doit utiliser le produit comme si c'était son choix personnel
-- Exemples d'intégration naturelle:
-  • Prendre une gorgée de sa boisson/shake entre exercices
-  • Vérifier ses stats sur sa montre connectée
-  • Appliquer une crème/spray naturellement
-  • Porter/utiliser l'équipement comme partie de sa routine
-- Le produit doit apparaître dans 1-2 scènes MAX, pas partout
-- Mentionne le produit dans prompt_image quand il apparaît (ex: "Put this person drinking from a protein shaker...")
-- Ajoute "product_placement": true pour les scènes où le produit apparaît"""
+⚡ INTÉGRATION NATURELLE SEULEMENT:
+- Le produit est juste LÀ, visible naturellement
+- PAS de mise en avant, PAS de focus dessus
+- Comme dans la vraie vie: le shaker est sur le banc, c'est tout
+- La personne ne "présente" jamais le produit
+- Elle l'utilise comme n'importe quel objet de sa routine
+- Dans 1 scène MAX, en arrière-plan ou utilisation naturelle
+- JAMAIS de "reveal" du produit"""
 
-    user_prompt = f"""Crée un script TikTok UNIQUE pour:
+    user_prompt = f"""Crée un TikTok AUTHENTIQUE pour:
 
-👤 AMBASSADEUR:
-- Nom: {ambassador_name}
-- Genre: {ambassador_gender}  
-- Description: {ambassador_description}
+👤 {ambassador_name} ({ambassador_gender})
+{ambassador_description}
 
-👕 TENUES DISPONIBLES:
+👕 TENUES: {len(outfits)} disponibles
 {outfits_text}
 {concept_text}{product_text}
 
-📅 Date: {datetime.now().strftime('%d/%m/%Y')}
-
-🎬 SOIS CRÉATIF! Décide:
-- Un concept ORIGINAL (pas toujours morning routine!)
-- Le nombre de scènes qui convient
-- La durée de chaque scène selon son contenu
-- Le rythme global (rapide? posé? crescendo?)
+🎬 CRÉE UN CONTENU RÉEL:
+- Pas de script marketing
+- Des vrais moments d'entraînement
+- L'ambassadrice vit sa vie, la caméra capte
+- Transpiration, effort, concentration
+- PAS de sourires forcés à la caméra
+- PAS de "reveal" ou "secret"
 
 Génère ce JSON:
 {{
-  "title": "Titre accrocheur",
-  "concept": "Ton concept créatif expliqué",
-  "total_duration": <durée totale que TU choisis>,
+  "title": "Titre court et accrocheur (style TikTok)",
+  "concept": "Le vibe du contenu",
+  "total_duration": <15-30 secondes max>,
   "hashtags": ["#...", ...],
-  "target_platform": "tiktok/instagram/both",
-  "mood": "energetic/chill/motivational/aesthetic/funny/intense",
-  "music_suggestion": "Type de musique qui irait bien",
-  "product_id": "{product_id if product else 'null'}",
+  "target_platform": "tiktok",
+  "mood": "raw/intense/chill/aesthetic/focused",
+  "music_suggestion": "Type de musique (trending sound, phonk, lo-fi...)",
   "scenes": [
     {{
       "order": 1,
-      "scene_type": "intro/workout/transition/lifestyle/pose/outro",
-      "description": "Ce qui se passe",
-      "duration": <durée en secondes - TU décides selon le contenu>,
-      "prompt_image": "Put this person [action] in [lieu]. [mood]",
+      "scene_type": "workout/transition/lifestyle/fit-check",
+      "description": "Moment capturé (NATUREL)",
+      "duration": <2-5 secondes>,
+      "prompt_image": "Put this person [action naturelle] in [lieu]. [ambiance]",
       "prompt_video": "La personne [action]. Caméra fixe.",
       "outfit_id": "<ID tenue>",
-      "camera_angle": "close-up/medium/wide/pov",
-      "transition_to_next": "cut/fade/swipe/none",
-      "product_placement": false  // true si le produit apparaît dans cette scène
+      "camera_angle": "pov/medium/wide",
+      "transition_to_next": "cut/none"
     }}
   ]
 }}
 
-⚠️ RÈGLES:
-1. prompt_image: TOUJOURS "Put this person...", AESTHETIC, max 20 mots
-2. Chaque vidéo doit être DIFFÉRENTE et CRÉATIVE
-3. Les durées doivent avoir du SENS par rapport au contenu"""
+🚫 INTERDITS ABSOLUS:
+- "smiling at camera" / "winking" / "making gesture"  
+- "secret" / "reveal" / "mystery"
+- "confident smile" / "knowing look"
+- Tout regard/geste vers la caméra
+- Plus de 6 scènes"""
 
     try:
         request_body = {
