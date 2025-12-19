@@ -130,6 +130,7 @@ from handlers.short_generation import (
     get_short_script,
     delete_short_script,
     update_scene,
+    generate_scene_photos,
 )
 
 # Import authentication handlers
@@ -455,6 +456,7 @@ def lambda_handler(event, context):
         ('POST', '/api/admin/shorts/save'): save_short_script,
         ('GET', '/api/admin/shorts'): get_short_scripts,
         ('PUT', '/api/admin/shorts/scene'): update_scene,
+        ('POST', '/api/admin/shorts/generate-scene-photos'): generate_scene_photos,
     }
     
     # Find matching route

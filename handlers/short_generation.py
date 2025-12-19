@@ -2,16 +2,38 @@
 TikTok Short Generation Handlers
 Generates scripted scenes for TikTok shorts using AWS Bedrock Claude
 Shorts are linked to specific ambassadors - AI decides everything
+Photos generated with Nano Banana Pro (Gemini)
 """
 import json
 import uuid
+import base64
+import urllib.request
 from datetime import datetime
 from decimal import Decimal
 
 from config import (
     response, decimal_to_python, verify_admin,
-    dynamodb, bedrock_runtime, ambassadors_table
+    dynamodb, bedrock_runtime, ambassadors_table, upload_to_s3
 )
+from handlers.gemini_client import generate_image
+
+# DynamoDB table for shorts
+shorts_table = dynamodb.Table('nano_banana_shorts')
+
+# AWS Bedrock Claude model for scripting
+BEDROCK_MODEL_ID = "us.anthropic.claude-sonnet-4-5-20250929-v1:0"
+
+
+def download_image_as_base64(image_url: str) -> str:
+    """Download image from URL and return as base64 string."""
+    try:
+        req = urllib.request.Request(image_url, headers={'User-Agent': 'Mozilla/5.0'})
+        with urllib.request.urlopen(req, timeout=30) as img_response:
+            image_data = img_response.read()
+            return base64.b64encode(image_data).decode('utf-8')
+    except Exception as e:
+        print(f"Error downloading image: {e}")
+        raise
 
 # DynamoDB table for shorts
 shorts_table = dynamodb.Table('nano_banana_shorts')
@@ -171,22 +193,30 @@ def generate_short_script(event):
     ambassador_description = ambassador.get('description', '')
     ambassador_gender = ambassador.get('gender', 'female')
     
-    # Get showcase photos as available outfits
-    showcase_photos = ambassador.get('showcase_photos', [])
+    # Get ambassador_outfits (photos of ambassador wearing different outfits)
+    ambassador_outfits = ambassador.get('ambassador_outfits', [])
     
     outfits = []
-    for idx, photo in enumerate(showcase_photos):
-        if isinstance(photo, dict) and photo.get('selected_image'):
-            outfits.append({
-                'id': f"outfit_{idx}",
-                'index': idx,
-                'image_url': photo.get('selected_image'),
-                'prompt': photo.get('prompt', ''),
-                'scene_type': photo.get('scene_type', ''),
-            })
+    for idx, outfit in enumerate(ambassador_outfits):
+        if isinstance(outfit, dict):
+            # Use selected_image if available, otherwise use first generated image
+            image_url = outfit.get('selected_image')
+            if not image_url and outfit.get('generated_images'):
+                generated = outfit.get('generated_images', [])
+                if generated:
+                    image_url = generated[0]
+            
+            if image_url:
+                outfits.append({
+                    'id': outfit.get('outfit_id', f"outfit_{idx}"),
+                    'index': idx,
+                    'image_url': image_url,
+                    'prompt': outfit.get('outfit_type', ''),
+                    'scene_type': outfit.get('outfit_type', ''),
+                })
     
     if not outfits:
-        return response(400, {'error': 'Ambassador has no outfits (showcase photos). Generate showcase photos first.'})
+        return response(400, {'error': 'Ambassador has no outfit photos. Generate outfit photos first in the Outfits tab.'})
     
     # Format outfits for AI prompt
     outfits_text = ""
@@ -194,7 +224,7 @@ def generate_short_script(event):
         outfits_text += f"- ID: {o['id']} | Description: {o['prompt'] or o['scene_type'] or 'Tenue sport'}\n"
     
     # Build the prompt for Claude
-    system_prompt = """Tu es un expert en création de contenus TikTok viraux pour le fitness et le lifestyle.
+    system_prompt = """Tu es un expert en création de contenus TikTok AUTHENTIQUES pour le fitness et le lifestyle.
 Tu génères des scripts de vidéos courts (reels/shorts) avec des scènes précises.
 
 TON RÔLE:
@@ -205,12 +235,31 @@ TON RÔLE:
 - Choisir les hashtags tendances pertinents
 - Assigner les bonnes tenues aux bonnes scènes
 
-RÈGLES:
-1. prompt_image: EN ANGLAIS, optimisé pour Gemini (Nano Banana Pro)
-2. prompt_video: EN FRANÇAIS, format Kling AI (action + "Caméra fixe.")
-3. Chaque scène utilise une tenue de la liste disponible
-4. Varier les types de scènes (intro, action, transition, outro)
-5. Le contenu doit matcher la personnalité de l'ambassadeur
+STYLE OBLIGATOIRE:
+- Contenu AUTHENTIQUE style TikTok/créateur - PAS commercial/publicitaire
+- Vibe genuine, relatable, "real life"
+- Comme si filmé par l'ambassadrice elle-même
+- Évite: "professional photo", "commercial", "brand ambassador", "high quality", "perfect lighting"
+
+RÈGLES POUR prompt_image:
+1. EN ANGLAIS
+2. TRÈS COURT: max 15 mots
+3. Format: "[lieu], [action], [expression/mood]"
+4. Style TikTok authentique, pas studio photo
+5. INTERDIT de mentionner: la personne, le corps, les cheveux, les vêtements, "athlete", "fit", "professional"
+
+EXEMPLES CORRECTS de prompt_image:
+✅ "modern bedroom, stretching after waking up, sleepy smile"
+✅ "kitchen counter, preparing shaker, focused"  
+✅ "gym entrance, walking in confidently, determined look"
+✅ "squat rack, mid-squat position, intense focus"
+✅ "mirror selfie angle, post-workout glow, genuine smile"
+
+EXEMPLES INTERDITS:
+❌ "Professional photo of a fit female athlete with blonde hair..."
+❌ "...wearing athletic sports wear..."
+❌ "...commercial photography style..."
+❌ "...high quality, perfect lighting..."
 
 FORMAT: JSON uniquement, pas de texte avant/après."""
 
@@ -251,7 +300,7 @@ Génère le JSON suivant:
       "scene_type": "intro/workout/transition/lifestyle/pose/outro",
       "description": "Description courte de la scène",
       "duration": <secondes>,
-      "prompt_image": "Professional photo of a fit {ambassador_gender} athlete, [description détaillée EN ANGLAIS], high quality, 9:16 portrait, cinematic lighting",
+      "prompt_image": "[lieu], [action], [mood] - MAX 15 MOTS, JAMAIS décrire la personne",
       "prompt_video": "La personne [action dynamique]. Caméra fixe.",
       "outfit_id": "<ID de la tenue à utiliser>",
       "camera_angle": "close-up/medium/wide/pov",
@@ -260,11 +309,11 @@ Génère le JSON suivant:
   ]
 }}
 
-IMPORTANT:
-- Utilise UNIQUEMENT les outfit_id de la liste ci-dessus
-- prompt_image en ANGLAIS, très détaillé
-- prompt_video en FRANÇAIS, action simple
-- Crée un contenu qui match la personnalité de {ambassador_name}"""
+RAPPEL CRITIQUE pour prompt_image:
+- JAMAIS "Professional photo", "fit athlete", "blonde hair", "athletic wear"
+- TOUJOURS court: "[lieu], [action], [expression]"
+- Style TikTok authentique, PAS publicité
+- L'image de la personne avec sa tenue sera fournie séparément"""
 
     try:
         request_body = {
@@ -731,3 +780,143 @@ def update_scene(event):
     except Exception as e:
         print(f"Error updating scene: {e}")
         return response(500, {'error': f'Failed to update scene: {str(e)}'})
+
+
+def generate_scene_photos(event):
+    """
+    Generate 2 photos for a scene using Nano Banana Pro (Gemini 3 Pro Image)
+    
+    POST body:
+    {
+        "script_id": "uuid",
+        "scene_index": 0,
+        "outfit_image_url": "https://s3...jpg"  # The ambassador outfit image to use as reference
+    }
+    
+    Returns:
+    {
+        "success": True,
+        "scene_photos": [
+            {"url": "https://s3...", "index": 0},
+            {"url": "https://s3...", "index": 1}
+        ]
+    }
+    """
+    if not verify_admin(event):
+        return response(401, {'error': 'Unauthorized'})
+    
+    try:
+        body = json.loads(event.get('body', '{}'))
+    except:
+        return response(400, {'error': 'Invalid JSON body'})
+    
+    script_id = body.get('script_id')
+    scene_index = body.get('scene_index')
+    outfit_image_url = body.get('outfit_image_url')
+    
+    if not script_id or scene_index is None or not outfit_image_url:
+        return response(400, {'error': 'script_id, scene_index, and outfit_image_url are required'})
+    
+    try:
+        # Get the script to get the scene's prompt_image
+        result = shorts_table.get_item(Key={'id': script_id})
+        script = result.get('Item')
+        
+        if not script:
+            return response(404, {'error': 'Script not found'})
+        
+        scenes = script.get('scenes', [])
+        if scene_index < 0 or scene_index >= len(scenes):
+            return response(400, {'error': 'Invalid scene_index'})
+        
+        scene = scenes[scene_index]
+        scene_prompt = scene.get('prompt_image', 'in a professional setting, standing confidently')
+        
+        # Download the outfit image as base64
+        print(f"Downloading outfit image: {outfit_image_url}")
+        outfit_base64 = download_image_as_base64(outfit_image_url)
+        
+        if not outfit_base64:
+            return response(500, {'error': 'Failed to download outfit image'})
+        
+        # Build the full prompt for Nano Banana Pro
+        # Simple format: just put the person in the context, keep same clothes
+        full_prompt = f"Put this person {scene_prompt}. Keep the exact same clothes and appearance. Professional photo, high quality, 9:16 portrait format, cinematic lighting."
+        
+        print(f"Generating 2 photos for scene {scene_index} with prompt: {full_prompt[:100]}...")
+        
+        # Generate 2 photos
+        scene_photos = []
+        ambassador_id = script.get('ambassador_id', 'unknown')
+        
+        for photo_index in range(2):
+            try:
+                print(f"Generating photo {photo_index + 1}/2...")
+                
+                # Call Gemini to generate image with reference
+                image_base64 = generate_image(
+                    prompt=full_prompt,
+                    reference_images=[outfit_base64],
+                    image_size="2K"  # High quality for TikTok
+                )
+                
+                if image_base64:
+                    # Upload to S3
+                    timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
+                    s3_key = f"shorts/{ambassador_id}/{script_id}/scene_{scene_index}_photo_{photo_index}_{timestamp}.png"
+                    
+                    photo_url = upload_to_s3(
+                        image_base64,
+                        s3_key,
+                        content_type='image/png'
+                    )
+                    
+                    if photo_url:
+                        scene_photos.append({
+                            'url': photo_url,
+                            'index': photo_index
+                        })
+                        print(f"Photo {photo_index + 1} uploaded: {photo_url}")
+                    else:
+                        print(f"Failed to upload photo {photo_index + 1} to S3")
+                else:
+                    print(f"Failed to generate photo {photo_index + 1}")
+                    
+            except Exception as e:
+                print(f"Error generating photo {photo_index + 1}: {e}")
+                continue
+        
+        if not scene_photos:
+            return response(500, {'error': 'Failed to generate any photos'})
+        
+        # Update the scene with the generated photos
+        scenes[scene_index]['generated_photos'] = scene_photos
+        scenes[scene_index]['photos_generated_at'] = datetime.now().isoformat()
+        script['scenes'] = scenes
+        script['updated_at'] = datetime.now().isoformat()
+        
+        # Convert floats to Decimal for DynamoDB
+        def convert_to_decimal(obj):
+            if isinstance(obj, float):
+                return Decimal(str(obj))
+            elif isinstance(obj, dict):
+                return {k: convert_to_decimal(v) for k, v in obj.items()}
+            elif isinstance(obj, list):
+                return [convert_to_decimal(i) for i in obj]
+            return obj
+        
+        script = convert_to_decimal(script)
+        shorts_table.put_item(Item=script)
+        
+        return response(200, {
+            'success': True,
+            'scene_photos': scene_photos,
+            'message': f'Generated {len(scene_photos)} photos for scene {scene_index}'
+        })
+        
+    except Exception as e:
+        print(f"Error generating scene photos: {e}")
+        import traceback
+        traceback.print_exc()
+        return response(500, {'error': f'Failed to generate scene photos: {str(e)}'})
+
