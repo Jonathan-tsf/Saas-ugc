@@ -69,14 +69,17 @@ def get_ambassador_outfits(event):
     """
     Get all outfits for a specific ambassador.
     GET /api/admin/shorts/ambassadors/{id}/outfits
+    OR GET /api/admin/shorts/outfits?ambassador_id=xxx
     
     Returns the ambassador's showcase_photos as available outfits.
     """
     if not verify_admin(event):
         return response(401, {'error': 'Unauthorized'})
     
+    # Support both path param and query param
     params = event.get('pathParameters', {}) or {}
-    ambassador_id = params.get('id')
+    query_params = event.get('queryStringParameters', {}) or {}
+    ambassador_id = params.get('id') or query_params.get('ambassador_id')
     
     if not ambassador_id:
         return response(400, {'error': 'ambassador_id is required'})

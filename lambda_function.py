@@ -449,6 +449,7 @@ def lambda_handler(event, context):
         
         # Admin short/TikTok generation
         ('GET', '/api/admin/shorts/ambassadors'): get_ambassadors_for_shorts,
+        ('GET', '/api/admin/shorts/outfits'): get_ambassador_outfits,  # Query param version
         ('POST', '/api/admin/shorts/generate-script'): generate_short_script,
         ('POST', '/api/admin/shorts/regenerate-scene'): regenerate_scene,
         ('POST', '/api/admin/shorts/save'): save_short_script,
