@@ -1091,13 +1091,16 @@ def generate_scene_photos_async(job_id: str, outfit_image_url: str):
                 )
                 
                 if image_base64:
-                    # Upload to S3
+                    # Upload to S3 - decode base64 to bytes first
+                    import base64 as b64
+                    image_bytes = b64.b64decode(image_base64)
+                    
                     timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
                     s3_key = f"shorts/{ambassador_id}/{script_id}/scene_{scene_index}_photo_{photo_index}_{timestamp}.png"
                     
                     photo_url = upload_to_s3(
-                        image_base64,
                         s3_key,
+                        image_bytes,
                         content_type='image/png'
                     )
                     
