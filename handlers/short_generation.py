@@ -249,26 +249,27 @@ DURÉES RÉALISTES POUR TIKTOK (TRÈS IMPORTANT):
 - JAMAIS plus de 6 secondes pour une seule scène!
 - Une vidéo TikTok de 30s = environ 8-12 scènes courtes et dynamiques
 
-RÈGLES POUR prompt_image:
+RÈGLES POUR prompt_image (TRÈS IMPORTANT):
 1. EN ANGLAIS
-2. TRÈS COURT: max 12 mots
-3. Format EXACT: "[lieu aesthetic], [action], [mood]"
-4. Style TikTok aesthetic - JAMAIS "messy", "dirty", "cluttered"
-5. INTERDIT: décrire la personne, son corps, ses cheveux, ses vêtements
+2. Format OBLIGATOIRE: "Put this person [action] in [lieu]. [mood/style]"
+3. TOUJOURS commencer par "Put this person"
+4. Max 20 mots total
+5. Style TikTok aesthetic - JAMAIS "messy", "dirty", "cluttered"
+6. INTERDIT: décrire la personne, son corps, ses cheveux, ses vêtements
 
 EXEMPLES CORRECTS de prompt_image:
-✅ "aesthetic bedroom, stretching in bed, soft morning light"
-✅ "clean kitchen, mixing shaker, focused"
-✅ "gym entrance, walking in, determined energy"
-✅ "squat rack, mid-rep, intense focus"
-✅ "mirror angle, checking outfit, confident smile"
-✅ "cozy couch, relaxing, content glow"
+✅ "Put this person stretching in an aesthetic bedroom. Soft morning light, genuine vibe."
+✅ "Put this person mixing a shaker in a clean kitchen. Focused energy."
+✅ "Put this person walking into a gym entrance. Determined look."
+✅ "Put this person doing squats at a squat rack. Intense focus."
+✅ "Put this person checking outfit in a mirror. Confident smile."
+✅ "Put this person flexing in a gym mirror. Proud post-workout glow."
+✅ "Put this person giving thumbs up. Happy energetic vibe."
 
 EXEMPLES INTERDITS:
-❌ "messy bedroom" (TikTok = aesthetic)
+❌ "aesthetic bedroom, stretching in bed" (manque "Put this person")
 ❌ "Professional photo of a fit female athlete..."
-❌ "wearing athletic sports wear..."
-❌ Plus de 12 mots
+❌ "messy bedroom" (TikTok = aesthetic)
 
 FORMAT: JSON uniquement, pas de texte avant/après."""
 
@@ -309,7 +310,7 @@ Génère le JSON suivant:
       "scene_type": "intro/workout/transition/lifestyle/pose/outro",
       "description": "Description courte de la scène",
       "duration": <2-5 secondes MAX par scène>,
-      "prompt_image": "[lieu aesthetic], [action], [mood] - MAX 12 MOTS",
+      "prompt_image": "Put this person [action] in [lieu]. [mood/style] - TOUJOURS commencer par 'Put this person'",
       "prompt_video": "La personne [action dynamique]. Caméra fixe.",
       "outfit_id": "<ID de la tenue à utiliser>",
       "camera_angle": "close-up/medium/wide/pov",
@@ -319,11 +320,11 @@ Génère le JSON suivant:
 }}
 
 RAPPELS CRITIQUES:
-1. prompt_image: MAX 12 mots, format "[lieu], [action], [mood]", style AESTHETIC
+1. prompt_image: TOUJOURS commencer par "Put this person", max 20 mots, style AESTHETIC
 2. Durées: 2-5 secondes par scène, JAMAIS plus de 6s
 3. Hook (intro): 2-3s pour capter l'attention
-4. JAMAIS "messy", "professional photo", description de la personne
-5. L'image de référence de la personne sera fournie à l'IA séparément"""
+4. JAMAIS "messy", "professional photo", description physique de la personne
+5. L'image de référence de la personne sera fournie à l'IA"""
 
     try:
         request_body = {
@@ -840,7 +841,7 @@ def generate_scene_photos(event):
             return response(400, {'error': 'Invalid scene_index'})
         
         scene = scenes[scene_index]
-        scene_prompt = scene.get('prompt_image', 'aesthetic room, casual pose, relaxed vibe')
+        scene_prompt = scene.get('prompt_image', 'Put this person in an aesthetic room, casual pose, relaxed vibe.')
         
         # Download the outfit image as base64
         print(f"Downloading outfit image: {outfit_image_url}")
@@ -850,8 +851,13 @@ def generate_scene_photos(event):
             return response(500, {'error': 'Failed to download outfit image'})
         
         # Build the full prompt for Nano Banana Pro
-        # TikTok authentic style - NOT commercial/professional
-        full_prompt = f"Put this exact person in this scene: {scene_prompt}. Keep the exact same face, body, and clothes from the reference image. TikTok aesthetic style, natural lighting, 9:16 vertical format, authentic vibe like a real content creator filmed it."
+        # The scene_prompt should already start with "Put this person..."
+        # Just add the technical requirements
+        if scene_prompt.lower().startswith('put this person'):
+            full_prompt = f"{scene_prompt} Keep exact same face, body and clothes. TikTok aesthetic, natural lighting, 9:16 vertical."
+        else:
+            # Fallback if old format without "Put this person"
+            full_prompt = f"Put this person {scene_prompt}. Keep exact same face, body and clothes. TikTok aesthetic, natural lighting, 9:16 vertical."
         
         print(f"Generating 2 photos for scene {scene_index} with prompt: {full_prompt[:100]}...")
         
