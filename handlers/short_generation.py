@@ -1009,7 +1009,7 @@ def start_scene_photos_generation(event):
         }
         
         lambda_client.invoke(
-            FunctionName='nano-banana-api',
+            FunctionName='saas-ugc',
             InvocationType='Event',  # Async
             Payload=json.dumps(payload)
         )
