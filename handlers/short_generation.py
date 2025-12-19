@@ -219,151 +219,91 @@ def generate_short_script(event):
         outfits_text += f"- ID: {o['id']} | Description: {o['prompt'] or o['scene_type'] or 'Tenue sport'}\n"
     
     # Build the prompt for Claude
-    system_prompt = """Tu es un expert SENIOR en création de contenus TikTok pour le fitness et le lifestyle.
-Tu génères des scripts de vidéos avec des durées PRÉCISES et RÉFLÉCHIES pour chaque scène.
+    system_prompt = """Tu es un CRÉATEUR TikTok expert. Tu crées des scripts vidéo UNIQUES à chaque fois.
 
-TON RÔLE:
-- Analyser le profil de l'ambassadeur (description, genre)
-- Choisir le MEILLEUR concept de vidéo pour cet ambassadeur
-- Décider du nombre de scènes optimal (4-8 scènes)
-- CALCULER la durée de chaque scène selon son CONTENU (pas au hasard!)
-- Choisir les hashtags tendances pertinents
-- Assigner les bonnes tenues aux bonnes scènes
+🎯 TON OBJECTIF:
+Créer un script vidéo TikTok ORIGINAL et CRÉATIF pour cet ambassadeur.
+Chaque script doit être DIFFÉRENT - ne répète JAMAIS le même concept.
 
-STYLE OBLIGATOIRE:
-- Contenu AUTHENTIQUE style TikTok/créateur - PAS commercial/publicitaire
-- Vibe genuine, relatable, "real life" mais AESTHETIC (jamais "messy", "dirty", etc.)
-- Comme si filmé par l'ambassadrice elle-même
-- Évite: "professional photo", "commercial", "brand ambassador", "high quality", "perfect lighting"
+🧠 TU DÉCIDES TOUT TOI-MÊME:
+1. Le CONCEPT unique de la vidéo (sois créatif! pas toujours "morning routine")
+2. Le NOMBRE de scènes (adapté au concept)
+3. La DURÉE de chaque scène (selon ce qui se passe dedans)
+4. La DURÉE TOTALE (selon le concept - peut être 15s ou 45s)
+5. Le RYTHME (rapide? lent? mix?)
+6. Les TRANSITIONS
+7. L'AMBIANCE
 
-⚠️ DURÉES - VIDÉO TIKTOK OPTIMALE = 25-40 SECONDES TOTAL
+💡 RÉFLÉCHIS À LA DURÉE DE CHAQUE SCÈNE:
+Pour chaque scène, demande-toi: "Combien de temps FAUT-IL pour que cette action soit claire et impactante?"
+- Une action RAPIDE (clap, wink, jump cut) = courte durée
+- Une action LENTE (exercice complet, préparation) = plus longue durée  
+- Un moment ÉMOTIONNEL (flex, regard caméra) = laisser respirer
+- C'est TOI qui décides, pas une règle fixe!
 
-DURÉES RECOMMANDÉES PAR TYPE DE SCÈNE:
+🎨 STYLE:
+- Authentique TikTok/créateur - PAS pub/commercial
+- AESTHETIC (jamais "messy", "dirty")
+- Comme filmé par l'ambassadrice elle-même
 
-📍 HOOKS/INTRO (capter l'attention):
-- Réveil/ouvre les yeux → 2-2.5s (laisser le temps de voir le visage)
-- Regarde la caméra → 1.5-2s
-- Texte overlay → 2.5-3s (temps de lecture)
-
-📍 PRÉPARATION/LIFESTYLE:
-- Se lève du lit → 2.5-3s (mouvement complet)
-- Attrape téléphone/check → 2.5-3s
-- Boit café/shaker → 2.5-3s (une vraie gorgée)
-- S'habille → 3-4s (enfile un vêtement)
-- Prépare son sac → 3s
-- Se regarde miroir → 2.5-3s
-
-📍 MOUVEMENT/DÉPLACEMENT:
-- Marche/entre quelque part → 2.5-3s
-- Transition lieu → 2-2.5s
-
-📍 WORKOUT/EXERCICES (le plus important!):
-- 2-3 répétitions d'exercice → 4-5s (montrer la forme!)
-- 3-4 répétitions → 5-6s
-- Flexing/pose fitness → 3-4s
-- Setup avant exercice → 2-3s
-
-📍 OUTRO:
-- Selfie miroir/flex final → 3-4s
-- Thumbs up/smile → 2-3s
-- Dernier regard caméra → 2-3s
-
-🎯 OBJECTIF DURÉE TOTALE: 25-40 secondes
-- 7 scènes = environ 4s par scène en moyenne
-- 6 scènes = environ 5s par scène en moyenne
-- Ne pas descendre sous 2.5s par scène (sauf cuts rapides)
-
-🚨 INTERDIT:
-- Vidéo de moins de 25 secondes (trop court!)
-- Scènes de workout en dessous de 4s (pas le temps de voir l'exercice)
-- Toutes les scènes à la même durée (varier!)
-
-RÈGLES POUR prompt_image (TRÈS IMPORTANT):
+📝 RÈGLES prompt_image:
 1. EN ANGLAIS
-2. Format OBLIGATOIRE: "Put this person [action] in [lieu]. [mood/style]"
-3. TOUJOURS commencer par "Put this person"
-4. Max 20 mots total
-5. Style TikTok aesthetic - JAMAIS "messy", "dirty", "cluttered"
-6. INTERDIT: décrire la personne, son corps, ses cheveux, ses vêtements
+2. Commence TOUJOURS par "Put this person"
+3. Format: "Put this person [action] in [lieu]. [mood]"
+4. Max 20 mots
+5. JAMAIS décrire la personne physiquement
 
-EXEMPLES CORRECTS de prompt_image:
-✅ "Put this person stretching in an aesthetic bedroom. Soft morning light, genuine vibe."
-✅ "Put this person mixing a shaker in a clean kitchen. Focused energy."
-✅ "Put this person walking into a gym entrance. Determined look."
-✅ "Put this person doing squats at a squat rack. Intense focus."
-✅ "Put this person checking outfit in a mirror. Confident smile."
-✅ "Put this person flexing in a gym mirror. Proud post-workout glow."
-✅ "Put this person giving thumbs up. Happy energetic vibe."
+FORMAT: JSON uniquement."""
 
-EXEMPLES INTERDITS:
-❌ "aesthetic bedroom, stretching in bed" (manque "Put this person")
-❌ "Professional photo of a fit female athlete..."
-❌ "messy bedroom" (TikTok = aesthetic)
+    concept_text = f"\n\n💡 CONCEPT SUGGÉRÉ: {concept}\n(Tu peux t'en inspirer ou proposer mieux!)" if concept else ""
 
-FORMAT: JSON uniquement, pas de texte avant/après."""
+    user_prompt = f"""Crée un script TikTok UNIQUE pour:
 
-    concept_text = f"\n\nCONCEPT SUGGÉRÉ PAR L'UTILISATEUR: {concept}" if concept else ""
-
-    user_prompt = f"""Génère un script TikTok/Reel pour cet ambassadeur:
-
-AMBASSADEUR:
+👤 AMBASSADEUR:
 - Nom: {ambassador_name}
-- Genre: {ambassador_gender}
+- Genre: {ambassador_gender}  
 - Description: {ambassador_description}
 
-TENUES DISPONIBLES (tu DOIS utiliser ces IDs):
+👕 TENUES DISPONIBLES:
 {outfits_text}
 {concept_text}
 
-DATE: {datetime.now().strftime('%d/%m/%Y')}
+📅 Date: {datetime.now().strftime('%d/%m/%Y')}
 
-DÉCIDE TOI-MÊME:
-- Le concept/thème de la vidéo
-- Le nombre de scènes (6-8 scènes pour une bonne histoire)
-- La durée totale: VISE 25-40 SECONDES (optimal TikTok)
-- Les hashtags tendances (5-10)
-- Comment utiliser au mieux les tenues
+🎬 SOIS CRÉATIF! Décide:
+- Un concept ORIGINAL (pas toujours morning routine!)
+- Le nombre de scènes qui convient
+- La durée de chaque scène selon son contenu
+- Le rythme global (rapide? posé? crescendo?)
 
-⚠️ CALCUL DURÉE:
-- 7 scènes × ~4s = 28s ✅
-- 6 scènes × ~5s = 30s ✅
-- Workout = 4-5s minimum (montrer l'exercice!)
-- Lifestyle = 2.5-3.5s
-- Intro/Outro = 2.5-4s
-
-Génère le JSON suivant:
+Génère ce JSON:
 {{
-  "title": "Titre accrocheur du short",
-  "concept": "Explication du concept choisi",
-  "total_duration": <VISE 25-40 secondes>,
-  "hashtags": ["#hashtag1", "#hashtag2", ...],
-  "target_platform": "tiktok" ou "instagram" ou "both",
-  "mood": "energetic/chill/motivational/aesthetic/funny",
-  "music_suggestion": "Type de musique recommandé",
+  "title": "Titre accrocheur",
+  "concept": "Ton concept créatif expliqué",
+  "total_duration": <durée totale que TU choisis>,
+  "hashtags": ["#...", ...],
+  "target_platform": "tiktok/instagram/both",
+  "mood": "energetic/chill/motivational/aesthetic/funny/intense",
+  "music_suggestion": "Type de musique qui irait bien",
   "scenes": [
     {{
       "order": 1,
       "scene_type": "intro/workout/transition/lifestyle/pose/outro",
-      "description": "Description courte de la scène",
-      "duration": <DURÉE CALCULÉE selon le contenu - voir règles ci-dessus>,
-      "duration_reasoning": "<Explique pourquoi cette durée: ex: 'ouvre les yeux = geste instantané = 1.5s'>",
-      "prompt_image": "Put this person [action] in [lieu]. [mood/style] - TOUJOURS commencer par 'Put this person'",
-      "prompt_video": "La personne [action dynamique]. Caméra fixe.",
-      "outfit_id": "<ID de la tenue à utiliser>",
+      "description": "Ce qui se passe",
+      "duration": <durée en secondes - TU décides selon le contenu>,
+      "prompt_image": "Put this person [action] in [lieu]. [mood]",
+      "prompt_video": "La personne [action]. Caméra fixe.",
+      "outfit_id": "<ID tenue>",
       "camera_angle": "close-up/medium/wide/pov",
       "transition_to_next": "cut/fade/swipe/none"
     }}
   ]
 }}
 
-⚠️ RAPPELS CRITIQUES:
-1. DURÉE TOTALE: 25-40 secondes (pas moins de 25s!)
-2. Scènes workout: minimum 4-5s (montrer l'exercice!)
-3. Scènes lifestyle: 2.5-3.5s
-4. Intro/outro: 2.5-4s
-5. prompt_image: TOUJOURS "Put this person...", max 20 mots, style AESTHETIC
-6. JAMAIS "messy", "professional photo", description physique
-7. L'image de référence sera fournie à l'IA"""
+⚠️ RÈGLES:
+1. prompt_image: TOUJOURS "Put this person...", AESTHETIC, max 20 mots
+2. Chaque vidéo doit être DIFFÉRENTE et CRÉATIVE
+3. Les durées doivent avoir du SENS par rapport au contenu"""
 
     try:
         request_body = {
