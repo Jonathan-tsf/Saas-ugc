@@ -361,6 +361,15 @@ def lambda_handler(event, context):
     http_method = event.get('httpMethod', '')
     path = event.get('path', '')
     
+    # 🔥 NORMALISATION DU STAGE API GATEWAY (CRUCIAL)
+    # REST API Gateway v1 injecte le stage dans le path (ex: /production/api/...)
+    # On doit le retirer pour que le routing fonctionne
+    stage = event.get('requestContext', {}).get('stage')
+    if stage and path.startswith(f'/{stage}'):
+        path = path[len(stage) + 1:]
+    
+    print(f"ROUTING: {http_method} {path}")
+    
     # Handle CORS preflight
     if http_method == 'OPTIONS':
         return response(200, {})

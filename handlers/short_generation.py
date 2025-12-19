@@ -525,6 +525,14 @@ Génère ce JSON:
             if 'product_placement' not in scene:
                 scene['product_placement'] = False
         
+        # Save script to DynamoDB immediately so generate_scene_photos can find it
+        try:
+            shorts_table.put_item(Item=script)
+            print(f"Script saved to DynamoDB with id: {script['id']}")
+        except Exception as e:
+            print(f"Warning: Failed to auto-save script: {e}")
+            # Continue anyway - the script will work, just won't be persisted yet
+        
         return response(200, {
             'success': True,
             'script': script
