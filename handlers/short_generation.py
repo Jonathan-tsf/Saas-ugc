@@ -1254,10 +1254,3 @@ def get_scene_photos_status(event):
 def generate_scene_photos(event):
     """Backward compatible alias - now starts async generation"""
     return start_scene_photos_generation(event)
-        
-    except Exception as e:
-        print(f"Error generating scene photos: {e}")
-        import traceback
-        traceback.print_exc()
-        return response(500, {'error': f'Failed to generate scene photos: {str(e)}'})
-
