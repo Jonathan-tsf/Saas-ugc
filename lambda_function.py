@@ -132,6 +132,8 @@ from handlers.short_generation import (
     delete_short_script,
     update_scene,
     generate_scene_photos,
+    generate_scene_photos_async,
+    get_scene_photos_status,
 )
 
 # Import authentication handlers
@@ -358,6 +360,13 @@ def lambda_handler(event, context):
         generate_showcase_videos_async(job_id)
         return {'statusCode': 200, 'body': json.dumps({'success': True})}
     
+    # Handle async scene photos generation (for shorts/TikTok)
+    if 'action' in event and event['action'] == 'generate_scene_photos_async':
+        job_id = event['job_id']
+        outfit_image_url = event['outfit_image_url']
+        generate_scene_photos_async(job_id, outfit_image_url)
+        return {'statusCode': 200, 'body': json.dumps({'success': True})}
+    
     http_method = event.get('httpMethod', '')
     path = event.get('path', '')
     
@@ -467,6 +476,7 @@ def lambda_handler(event, context):
         ('GET', '/api/admin/shorts'): get_short_scripts,
         ('PUT', '/api/admin/shorts/scene'): update_scene,
         ('POST', '/api/admin/shorts/generate-scene-photos'): generate_scene_photos,
+        ('GET', '/api/admin/shorts/scene-photos/status'): get_scene_photos_status,
     }
     
     # Find matching route
@@ -559,7 +569,9 @@ def lambda_handler(event, context):
         '/api/admin/shorts/generate-script',
         '/api/admin/shorts/regenerate-scene',
         '/api/admin/shorts/save',
-        '/api/admin/shorts/scene'
+        '/api/admin/shorts/scene',
+        '/api/admin/shorts/generate-scene-photos',
+        '/api/admin/shorts/scene-photos/status'
     ] and path != '/api/admin/shorts':
         parts = path.split('/')
         

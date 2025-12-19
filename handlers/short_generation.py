@@ -13,13 +13,14 @@ from decimal import Decimal
 
 from config import (
     response, decimal_to_python, verify_admin,
-    dynamodb, bedrock_runtime, ambassadors_table, upload_to_s3
+    dynamodb, bedrock_runtime, ambassadors_table, upload_to_s3, lambda_client, s3, S3_BUCKET
 )
 from handlers.gemini_client import generate_image
 
 # DynamoDB tables
 shorts_table = dynamodb.Table('nano_banana_shorts')
 products_table = dynamodb.Table('products')
+jobs_table = dynamodb.Table('nano_banana_jobs')  # For async photo generation
 
 # AWS Bedrock Claude Opus 4.5 pour le scripting (meilleure réflexion sur les durées)
 # Global inference profile for cross-region routing
@@ -928,24 +929,23 @@ def update_scene(event):
         return response(500, {'error': f'Failed to update scene: {str(e)}'})
 
 
-def generate_scene_photos(event):
+def start_scene_photos_generation(event):
     """
-    Generate 2 photos for a scene using Nano Banana Pro (Gemini 3 Pro Image)
+    Start async photo generation for a scene - Returns job_id immediately.
+    Photos are generated in background using Lambda async invocation.
     
-    POST body:
-    {
+    POST /api/admin/shorts/generate-scene-photos
+    Body: {
         "script_id": "uuid",
         "scene_index": 0,
-        "outfit_image_url": "https://s3...jpg"  # The ambassador outfit image to use as reference
+        "outfit_image_url": "https://s3...jpg"
     }
     
     Returns:
     {
         "success": True,
-        "scene_photos": [
-            {"url": "https://s3...", "index": 0},
-            {"url": "https://s3...", "index": 1}
-        ]
+        "job_id": "uuid",
+        "status": "pending"
     }
     """
     if not verify_admin(event):
@@ -964,7 +964,7 @@ def generate_scene_photos(event):
         return response(400, {'error': 'script_id, scene_index, and outfit_image_url are required'})
     
     try:
-        # Get the script to get the scene's prompt_image
+        # Get the script to validate it exists
         result = shorts_table.get_item(Key={'id': script_id})
         script = result.get('Item')
         
@@ -977,28 +977,107 @@ def generate_scene_photos(event):
         
         scene = scenes[scene_index]
         scene_prompt = scene.get('prompt_image', 'Put this person in an aesthetic room, casual pose, relaxed vibe.')
+        ambassador_id = script.get('ambassador_id', 'unknown')
         
-        # Download the outfit image as base64
-        print(f"Downloading outfit image: {outfit_image_url}")
+        # Create job in DynamoDB
+        job_id = str(uuid.uuid4())
+        job = {
+            'id': job_id,
+            'type': 'scene_photos',
+            'status': 'pending',
+            'script_id': script_id,
+            'scene_index': scene_index,
+            'ambassador_id': ambassador_id,
+            'outfit_image_url': outfit_image_url,
+            'scene_prompt': scene_prompt,
+            'photos': [],
+            'progress': 0,
+            'total': 2,  # Always generate 2 photos
+            'created_at': datetime.now().isoformat(),
+            'updated_at': datetime.now().isoformat()
+        }
+        
+        jobs_table.put_item(Item=job)
+        print(f"Created scene photos job: {job_id}")
+        
+        # Invoke Lambda async for photo generation immediately
+        # Image will be downloaded in async handler (faster response)
+        payload = {
+            'action': 'generate_scene_photos_async',
+            'job_id': job_id,
+            'outfit_image_url': outfit_image_url  # Pass URL, download in async
+        }
+        
+        lambda_client.invoke(
+            FunctionName='nano-banana-api',
+            InvocationType='Event',  # Async
+            Payload=json.dumps(payload)
+        )
+        print(f"Launched async scene photo generation for job {job_id}")
+        
+        return response(200, {
+            'success': True,
+            'job_id': job_id,
+            'status': 'pending'
+        })
+        
+    except Exception as e:
+        print(f"Error starting scene photos generation: {e}")
+        import traceback
+        traceback.print_exc()
+        return response(500, {'error': f'Failed to start generation: {str(e)}'})
+
+
+def generate_scene_photos_async(job_id: str, outfit_image_url: str):
+    """
+    Async handler - Generate 2 photos for a scene using Nano Banana Pro.
+    Called by Lambda async invocation.
+    
+    Args:
+        job_id: The job ID to update
+        outfit_image_url: URL of the outfit image to use as reference
+    """
+    print(f"Starting async scene photo generation for job {job_id}")
+    
+    try:
+        # Get job data
+        result = jobs_table.get_item(Key={'id': job_id})
+        job = result.get('Item')
+        
+        if not job:
+            print(f"Job {job_id} not found")
+            return
+        
+        # Update status to processing
+        jobs_table.update_item(
+            Key={'id': job_id},
+            UpdateExpression='SET #status = :status, updated_at = :updated',
+            ExpressionAttributeNames={'#status': 'status'},
+            ExpressionAttributeValues={
+                ':status': 'processing',
+                ':updated': datetime.now().isoformat()
+            }
+        )
+        
+        # Download outfit image directly (moved from sync handler)
+        print(f"Downloading outfit reference from URL: {outfit_image_url}")
         outfit_base64 = download_image_as_base64(outfit_image_url)
         
-        if not outfit_base64:
-            return response(500, {'error': 'Failed to download outfit image'})
+        script_id = job.get('script_id')
+        scene_index = int(job.get('scene_index', 0))
+        ambassador_id = job.get('ambassador_id', 'unknown')
+        scene_prompt = job.get('scene_prompt', 'Put this person in an aesthetic room, casual pose, relaxed vibe.')
         
-        # Build the full prompt for Nano Banana Pro
-        # The scene_prompt should already start with "Put this person..."
-        # Just add the technical requirements
+        # Build the full prompt
         if scene_prompt.lower().startswith('put this person'):
             full_prompt = f"{scene_prompt} Keep exact same face, body and clothes. TikTok aesthetic, natural lighting, 9:16 vertical."
         else:
-            # Fallback if old format without "Put this person"
             full_prompt = f"Put this person {scene_prompt}. Keep exact same face, body and clothes. TikTok aesthetic, natural lighting, 9:16 vertical."
         
-        print(f"Generating 2 photos for scene {scene_index} with prompt: {full_prompt[:100]}...")
+        print(f"Generating 2 photos with prompt: {full_prompt[:100]}...")
         
         # Generate 2 photos
         scene_photos = []
-        ambassador_id = script.get('ambassador_id', 'unknown')
         
         for photo_index in range(2):
             try:
@@ -1008,7 +1087,7 @@ def generate_scene_photos(event):
                 image_base64 = generate_image(
                     prompt=full_prompt,
                     reference_images=[outfit_base64],
-                    image_size="2K"  # High quality for TikTok
+                    image_size="2K"
                 )
                 
                 if image_base64:
@@ -1028,6 +1107,17 @@ def generate_scene_photos(event):
                             'index': photo_index
                         })
                         print(f"Photo {photo_index + 1} uploaded: {photo_url}")
+                        
+                        # Update job progress
+                        jobs_table.update_item(
+                            Key={'id': job_id},
+                            UpdateExpression='SET photos = :photos, progress = :progress, updated_at = :updated',
+                            ExpressionAttributeValues={
+                                ':photos': scene_photos,
+                                ':progress': photo_index + 1,
+                                ':updated': datetime.now().isoformat()
+                            }
+                        )
                     else:
                         print(f"Failed to upload photo {photo_index + 1} to S3")
                 else:
@@ -1035,35 +1125,135 @@ def generate_scene_photos(event):
                     
             except Exception as e:
                 print(f"Error generating photo {photo_index + 1}: {e}")
+                import traceback
+                traceback.print_exc()
                 continue
         
-        if not scene_photos:
-            return response(500, {'error': 'Failed to generate any photos'})
+        # Update script with generated photos
+        if scene_photos:
+            try:
+                script_result = shorts_table.get_item(Key={'id': script_id})
+                script = script_result.get('Item')
+                
+                if script:
+                    scenes = script.get('scenes', [])
+                    if 0 <= scene_index < len(scenes):
+                        scenes[scene_index]['generated_photos'] = scene_photos
+                        scenes[scene_index]['photos_generated_at'] = datetime.now().isoformat()
+                        script['scenes'] = scenes
+                        script['updated_at'] = datetime.now().isoformat()
+                        
+                        # Convert floats to Decimal for DynamoDB
+                        def convert_to_decimal(obj):
+                            if isinstance(obj, float):
+                                return Decimal(str(obj))
+                            elif isinstance(obj, dict):
+                                return {k: convert_to_decimal(v) for k, v in obj.items()}
+                            elif isinstance(obj, list):
+                                return [convert_to_decimal(i) for i in obj]
+                            return obj
+                        
+                        script = convert_to_decimal(script)
+                        shorts_table.put_item(Item=script)
+                        print(f"Updated script {script_id} with {len(scene_photos)} photos")
+            except Exception as e:
+                print(f"Error updating script: {e}")
         
-        # Update the scene with the generated photos
-        scenes[scene_index]['generated_photos'] = scene_photos
-        scenes[scene_index]['photos_generated_at'] = datetime.now().isoformat()
-        script['scenes'] = scenes
-        script['updated_at'] = datetime.now().isoformat()
+        # Mark job as completed
+        final_status = 'completed' if scene_photos else 'failed'
+        jobs_table.update_item(
+            Key={'id': job_id},
+            UpdateExpression='SET #status = :status, photos = :photos, updated_at = :updated',
+            ExpressionAttributeNames={'#status': 'status'},
+            ExpressionAttributeValues={
+                ':status': final_status,
+                ':photos': scene_photos,
+                ':updated': datetime.now().isoformat()
+            }
+        )
         
-        # Convert floats to Decimal for DynamoDB
-        def convert_to_decimal(obj):
-            if isinstance(obj, float):
-                return Decimal(str(obj))
-            elif isinstance(obj, dict):
-                return {k: convert_to_decimal(v) for k, v in obj.items()}
-            elif isinstance(obj, list):
-                return [convert_to_decimal(i) for i in obj]
-            return obj
+        # Cleanup temp S3 file
+        try:
+            s3.delete_object(Bucket=S3_BUCKET, Key=outfit_s3_key)
+            print(f"Cleaned up temp file: {outfit_s3_key}")
+        except:
+            pass
         
-        script = convert_to_decimal(script)
-        shorts_table.put_item(Item=script)
+        print(f"Job {job_id} {final_status} with {len(scene_photos)} photos")
+        
+    except Exception as e:
+        print(f"Error in async scene photo generation: {e}")
+        import traceback
+        traceback.print_exc()
+        
+        # Mark job as failed
+        try:
+            jobs_table.update_item(
+                Key={'id': job_id},
+                UpdateExpression='SET #status = :status, #error = :error, updated_at = :updated',
+                ExpressionAttributeNames={'#status': 'status', '#error': 'error'},
+                ExpressionAttributeValues={
+                    ':status': 'failed',
+                    ':error': str(e),
+                    ':updated': datetime.now().isoformat()
+                }
+            )
+        except:
+            pass
+
+
+def get_scene_photos_status(event):
+    """
+    Get status of scene photos generation job.
+    GET /api/admin/shorts/scene-photos/status?job_id=xxx
+    
+    Returns:
+    {
+        "success": True,
+        "status": "pending|processing|completed|failed",
+        "progress": 1,
+        "total": 2,
+        "photos": [...] // when completed
+    }
+    """
+    if not verify_admin(event):
+        return response(401, {'error': 'Unauthorized'})
+    
+    # Get job_id from query params
+    query_params = event.get('queryStringParameters', {}) or {}
+    job_id = query_params.get('job_id')
+    
+    if not job_id:
+        return response(400, {'error': 'job_id query parameter is required'})
+    
+    try:
+        result = jobs_table.get_item(Key={'id': job_id})
+        job = result.get('Item')
+        
+        if not job:
+            return response(404, {'error': 'Job not found'})
         
         return response(200, {
             'success': True,
-            'scene_photos': scene_photos,
-            'message': f'Generated {len(scene_photos)} photos for scene {scene_index}'
+            'job_id': job_id,
+            'status': job.get('status', 'unknown'),
+            'progress': int(job.get('progress', 0)),
+            'total': int(job.get('total', 2)),
+            'photos': decimal_to_python(job.get('photos', [])),
+            'error': job.get('error'),
+            'script_id': job.get('script_id'),
+            'scene_index': int(job.get('scene_index', 0))
         })
+        
+    except Exception as e:
+        print(f"Error getting scene photos status: {e}")
+        return response(500, {'error': f'Failed to get status: {str(e)}'})
+
+
+# Keep old function name as alias for backward compatibility
+def generate_scene_photos(event):
+    """Backward compatible alias - now starts async generation"""
+    return start_scene_photos_generation(event)
         
     except Exception as e:
         print(f"Error generating scene photos: {e}")
