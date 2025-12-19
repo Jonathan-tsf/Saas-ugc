@@ -21,7 +21,8 @@ from handlers.gemini_client import generate_image
 shorts_table = dynamodb.Table('nano_banana_shorts')
 
 # AWS Bedrock Claude Opus 4.5 pour le scripting (meilleure réflexion sur les durées)
-BEDROCK_MODEL_ID = "anthropic.claude-opus-4-5-20251101-v1:0"
+# Cross-region inference model ID
+BEDROCK_MODEL_ID = "us.anthropic.claude-opus-4-5-20251101-v1:0"
 
 
 def download_image_as_base64(image_url: str) -> str:
