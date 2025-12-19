@@ -71,7 +71,7 @@ def get_ambassador_outfits(event):
     GET /api/admin/shorts/ambassadors/{id}/outfits
     OR GET /api/admin/shorts/outfits?ambassador_id=xxx
     
-    Returns the ambassador's showcase_photos as available outfits.
+    Returns the ambassador's generated outfit photos (ambassador_outfits).
     """
     if not verify_admin(event):
         return response(401, {'error': 'Unauthorized'})
@@ -91,20 +91,28 @@ def get_ambassador_outfits(event):
         if not ambassador:
             return response(404, {'error': 'Ambassador not found'})
         
-        # Get showcase photos as outfits
-        showcase_photos = ambassador.get('showcase_photos', [])
+        # Get ambassador_outfits (generated outfit photos with the ambassador wearing different outfits)
+        ambassador_outfits = ambassador.get('ambassador_outfits', [])
         
         outfits = []
-        for idx, photo in enumerate(showcase_photos):
-            if isinstance(photo, dict) and photo.get('selected_image'):
-                outfits.append({
-                    'id': f"outfit_{idx}",
-                    'index': idx,
-                    'image_url': photo.get('selected_image'),
-                    'prompt': photo.get('prompt', ''),
-                    'scene_type': photo.get('scene_type', ''),
-                    'description': photo.get('prompt', f'Tenue {idx + 1}')
-                })
+        for idx, outfit in enumerate(ambassador_outfits):
+            if isinstance(outfit, dict):
+                # Use selected_image if available, otherwise use first generated image
+                image_url = outfit.get('selected_image')
+                if not image_url and outfit.get('generated_images'):
+                    generated = outfit.get('generated_images', [])
+                    if generated:
+                        image_url = generated[0]
+                
+                if image_url:
+                    outfits.append({
+                        'id': outfit.get('outfit_id', f"outfit_{idx}"),
+                        'index': idx,
+                        'image_url': image_url,
+                        'outfit_type': outfit.get('outfit_type', ''),
+                        'status': outfit.get('status', 'pending'),
+                        'description': outfit.get('outfit_type', f'Tenue {idx + 1}')
+                    })
         
         return response(200, {
             'success': True,
