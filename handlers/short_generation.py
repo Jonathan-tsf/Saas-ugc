@@ -236,49 +236,47 @@ STYLE OBLIGATOIRE:
 - Comme si filmé par l'ambassadrice elle-même
 - Évite: "professional photo", "commercial", "brand ambassador", "high quality", "perfect lighting"
 
-⚠️ DURÉES RÉFLÉCHIES - RÈGLES STRICTES (PAS AU HASARD!):
+⚠️ DURÉES - VIDÉO TIKTOK OPTIMALE = 25-40 SECONDES TOTAL
 
-CHAQUE DURÉE DOIT CORRESPONDRE AU CONTENU DE LA SCÈNE:
+DURÉES RECOMMANDÉES PAR TYPE DE SCÈNE:
 
 📍 HOOKS/INTRO (capter l'attention):
-- Réveil/ouvre les yeux → 1.5s (geste instantané)
-- Regarde la caméra → 1s
-- Texte qui apparaît → 2s (temps de lecture)
-- Question posée → 2-2.5s
+- Réveil/ouvre les yeux → 2-2.5s (laisser le temps de voir le visage)
+- Regarde la caméra → 1.5-2s
+- Texte overlay → 2.5-3s (temps de lecture)
 
 📍 PRÉPARATION/LIFESTYLE:
-- Attrape son téléphone → 1.5s
-- Check le téléphone/scroll → 2-3s (selon si on voit l'écran)
-- Boit un café/shaker → 2s (une gorgée)
-- S'habille (enfile un haut) → 2-3s
-- Prépare son sac → 2.5s
-- Se regarde dans le miroir → 2s
+- Se lève du lit → 2.5-3s (mouvement complet)
+- Attrape téléphone/check → 2.5-3s
+- Boit café/shaker → 2.5-3s (une vraie gorgée)
+- S'habille → 3-4s (enfile un vêtement)
+- Prépare son sac → 3s
+- Se regarde miroir → 2.5-3s
 
 📍 MOUVEMENT/DÉPLACEMENT:
-- Se lève du lit → 2s
-- Marche vers la porte → 2s
-- Entre dans la salle → 2s
-- S'approche d'une machine → 2s
+- Marche/entre quelque part → 2.5-3s
+- Transition lieu → 2-2.5s
 
-📍 WORKOUT/EXERCICES:
-- 1-2 répétitions d'un exercice → 3s
-- 2-3 répétitions → 4s
-- Flexing/pose → 2s
-- Préparation avant exercice → 2s
-
-📍 TRANSITIONS:
-- Cut simple → 0.5s
-- Swipe/effet → 1s
+📍 WORKOUT/EXERCICES (le plus important!):
+- 2-3 répétitions d'exercice → 4-5s (montrer la forme!)
+- 3-4 répétitions → 5-6s
+- Flexing/pose fitness → 3-4s
+- Setup avant exercice → 2-3s
 
 📍 OUTRO:
-- Thumbs up/smile → 1.5s
-- Logo/CTA → 2s
-- Dernier regard caméra → 1.5s
+- Selfie miroir/flex final → 3-4s
+- Thumbs up/smile → 2-3s
+- Dernier regard caméra → 2-3s
+
+🎯 OBJECTIF DURÉE TOTALE: 25-40 secondes
+- 7 scènes = environ 4s par scène en moyenne
+- 6 scènes = environ 5s par scène en moyenne
+- Ne pas descendre sous 2.5s par scène (sauf cuts rapides)
 
 🚨 INTERDIT:
-- 2s pour "réveil" (trop long! c'est 1-1.5s)
-- 5s pour "marche" (trop long! c'est 2s)
-- Durées identiques pour toutes les scènes (chaque scène a sa durée LOGIQUE)
+- Vidéo de moins de 25 secondes (trop court!)
+- Scènes de workout en dessous de 4s (pas le temps de voir l'exercice)
+- Toutes les scènes à la même durée (varier!)
 
 RÈGLES POUR prompt_image (TRÈS IMPORTANT):
 1. EN ANGLAIS
@@ -321,23 +319,23 @@ DATE: {datetime.now().strftime('%d/%m/%Y')}
 
 DÉCIDE TOI-MÊME:
 - Le concept/thème de la vidéo
-- Le nombre de scènes (entre 5 et 8 scènes - court et impactant)
-- La durée totale (SOMME des durées = généralement 15-30 secondes)
+- Le nombre de scènes (6-8 scènes pour une bonne histoire)
+- La durée totale: VISE 25-40 SECONDES (optimal TikTok)
 - Les hashtags tendances (5-10)
 - Comment utiliser au mieux les tenues
 
-⚠️ AVANT DE GÉNÉRER, RÉFLÉCHIS:
-Pour chaque scène, demande-toi: "Combien de temps dure réellement cette action dans la vraie vie?"
-- Un réveil = instantané (1-1.5s)
-- Une gorgée de café = 2s
-- 2-3 squats = 3-4s
-- Un pas vers la porte = 2s
+⚠️ CALCUL DURÉE:
+- 7 scènes × ~4s = 28s ✅
+- 6 scènes × ~5s = 30s ✅
+- Workout = 4-5s minimum (montrer l'exercice!)
+- Lifestyle = 2.5-3.5s
+- Intro/Outro = 2.5-4s
 
 Génère le JSON suivant:
 {{
   "title": "Titre accrocheur du short",
   "concept": "Explication du concept choisi",
-  "total_duration": <nombre en secondes - SOMME des durées de toutes les scènes>,
+  "total_duration": <VISE 25-40 secondes>,
   "hashtags": ["#hashtag1", "#hashtag2", ...],
   "target_platform": "tiktok" ou "instagram" ou "both",
   "mood": "energetic/chill/motivational/aesthetic/funny",
@@ -359,14 +357,13 @@ Génère le JSON suivant:
 }}
 
 ⚠️ RAPPELS CRITIQUES:
-1. prompt_image: TOUJOURS commencer par "Put this person", max 20 mots, style AESTHETIC
-2. DURÉES: Chaque durée DOIT être justifiée par le contenu (pas de durées aléatoires!)
-3. "réveil/ouvre les yeux" = 1-1.5s MAX (c'est instantané!)
-4. "marche/déplacement" = 2s MAX
-5. "exercice" = 3-4s pour montrer 2-3 reps
-6. JAMAIS "messy", "professional photo", description physique de la personne
-7. L'image de référence de la personne sera fournie à l'IA
-8. total_duration = SOMME de toutes les durées de scènes"""
+1. DURÉE TOTALE: 25-40 secondes (pas moins de 25s!)
+2. Scènes workout: minimum 4-5s (montrer l'exercice!)
+3. Scènes lifestyle: 2.5-3.5s
+4. Intro/outro: 2.5-4s
+5. prompt_image: TOUJOURS "Put this person...", max 20 mots, style AESTHETIC
+6. JAMAIS "messy", "professional photo", description physique
+7. L'image de référence sera fournie à l'IA"""
 
     try:
         request_body = {
