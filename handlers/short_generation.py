@@ -237,29 +237,38 @@ TON RÔLE:
 
 STYLE OBLIGATOIRE:
 - Contenu AUTHENTIQUE style TikTok/créateur - PAS commercial/publicitaire
-- Vibe genuine, relatable, "real life"
+- Vibe genuine, relatable, "real life" mais AESTHETIC (jamais "messy", "dirty", etc.)
 - Comme si filmé par l'ambassadrice elle-même
 - Évite: "professional photo", "commercial", "brand ambassador", "high quality", "perfect lighting"
 
+DURÉES RÉALISTES POUR TIKTOK (TRÈS IMPORTANT):
+- Hook/intro: 2-3 secondes MAX (doit capter l'attention immédiatement)
+- Scène d'action: 3-5 secondes (workout, préparation, etc.)
+- Transition: 2-3 secondes
+- Outro/CTA: 2-4 secondes MAX
+- JAMAIS plus de 6 secondes pour une seule scène!
+- Une vidéo TikTok de 30s = environ 8-12 scènes courtes et dynamiques
+
 RÈGLES POUR prompt_image:
 1. EN ANGLAIS
-2. TRÈS COURT: max 15 mots
-3. Format: "[lieu], [action], [expression/mood]"
-4. Style TikTok authentique, pas studio photo
-5. INTERDIT de mentionner: la personne, le corps, les cheveux, les vêtements, "athlete", "fit", "professional"
+2. TRÈS COURT: max 12 mots
+3. Format EXACT: "[lieu aesthetic], [action], [mood]"
+4. Style TikTok aesthetic - JAMAIS "messy", "dirty", "cluttered"
+5. INTERDIT: décrire la personne, son corps, ses cheveux, ses vêtements
 
 EXEMPLES CORRECTS de prompt_image:
-✅ "modern bedroom, stretching after waking up, sleepy smile"
-✅ "kitchen counter, preparing shaker, focused"  
-✅ "gym entrance, walking in confidently, determined look"
-✅ "squat rack, mid-squat position, intense focus"
-✅ "mirror selfie angle, post-workout glow, genuine smile"
+✅ "aesthetic bedroom, stretching in bed, soft morning light"
+✅ "clean kitchen, mixing shaker, focused"
+✅ "gym entrance, walking in, determined energy"
+✅ "squat rack, mid-rep, intense focus"
+✅ "mirror angle, checking outfit, confident smile"
+✅ "cozy couch, relaxing, content glow"
 
 EXEMPLES INTERDITS:
-❌ "Professional photo of a fit female athlete with blonde hair..."
-❌ "...wearing athletic sports wear..."
-❌ "...commercial photography style..."
-❌ "...high quality, perfect lighting..."
+❌ "messy bedroom" (TikTok = aesthetic)
+❌ "Professional photo of a fit female athlete..."
+❌ "wearing athletic sports wear..."
+❌ Plus de 12 mots
 
 FORMAT: JSON uniquement, pas de texte avant/après."""
 
@@ -280,8 +289,8 @@ DATE: {datetime.now().strftime('%d/%m/%Y')}
 
 DÉCIDE TOI-MÊME:
 - Le concept/thème de la vidéo
-- Le nombre de scènes (entre 3 et 8)
-- La durée totale (entre 15 et 60 secondes)
+- Le nombre de scènes (entre 6 et 12 pour une vidéo dynamique)
+- La durée totale (entre 20 et 45 secondes - format TikTok optimal)
 - Les hashtags tendances (5-10)
 - Comment utiliser au mieux les tenues
 
@@ -289,7 +298,7 @@ Génère le JSON suivant:
 {{
   "title": "Titre accrocheur du short",
   "concept": "Explication du concept choisi",
-  "total_duration": <nombre en secondes>,
+  "total_duration": <nombre en secondes - entre 20 et 45>,
   "hashtags": ["#hashtag1", "#hashtag2", ...],
   "target_platform": "tiktok" ou "instagram" ou "both",
   "mood": "energetic/chill/motivational/aesthetic/funny",
@@ -299,8 +308,8 @@ Génère le JSON suivant:
       "order": 1,
       "scene_type": "intro/workout/transition/lifestyle/pose/outro",
       "description": "Description courte de la scène",
-      "duration": <secondes>,
-      "prompt_image": "[lieu], [action], [mood] - MAX 15 MOTS, JAMAIS décrire la personne",
+      "duration": <2-5 secondes MAX par scène>,
+      "prompt_image": "[lieu aesthetic], [action], [mood] - MAX 12 MOTS",
       "prompt_video": "La personne [action dynamique]. Caméra fixe.",
       "outfit_id": "<ID de la tenue à utiliser>",
       "camera_angle": "close-up/medium/wide/pov",
@@ -309,11 +318,12 @@ Génère le JSON suivant:
   ]
 }}
 
-RAPPEL CRITIQUE pour prompt_image:
-- JAMAIS "Professional photo", "fit athlete", "blonde hair", "athletic wear"
-- TOUJOURS court: "[lieu], [action], [expression]"
-- Style TikTok authentique, PAS publicité
-- L'image de la personne avec sa tenue sera fournie séparément"""
+RAPPELS CRITIQUES:
+1. prompt_image: MAX 12 mots, format "[lieu], [action], [mood]", style AESTHETIC
+2. Durées: 2-5 secondes par scène, JAMAIS plus de 6s
+3. Hook (intro): 2-3s pour capter l'attention
+4. JAMAIS "messy", "professional photo", description de la personne
+5. L'image de référence de la personne sera fournie à l'IA séparément"""
 
     try:
         request_body = {
@@ -830,7 +840,7 @@ def generate_scene_photos(event):
             return response(400, {'error': 'Invalid scene_index'})
         
         scene = scenes[scene_index]
-        scene_prompt = scene.get('prompt_image', 'in a professional setting, standing confidently')
+        scene_prompt = scene.get('prompt_image', 'aesthetic room, casual pose, relaxed vibe')
         
         # Download the outfit image as base64
         print(f"Downloading outfit image: {outfit_image_url}")
@@ -840,8 +850,8 @@ def generate_scene_photos(event):
             return response(500, {'error': 'Failed to download outfit image'})
         
         # Build the full prompt for Nano Banana Pro
-        # Simple format: just put the person in the context, keep same clothes
-        full_prompt = f"Put this person {scene_prompt}. Keep the exact same clothes and appearance. Professional photo, high quality, 9:16 portrait format, cinematic lighting."
+        # TikTok authentic style - NOT commercial/professional
+        full_prompt = f"Put this exact person in this scene: {scene_prompt}. Keep the exact same face, body, and clothes from the reference image. TikTok aesthetic style, natural lighting, 9:16 vertical format, authentic vibe like a real content creator filmed it."
         
         print(f"Generating 2 photos for scene {scene_index} with prompt: {full_prompt[:100]}...")
         
