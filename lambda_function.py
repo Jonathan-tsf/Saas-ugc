@@ -123,6 +123,7 @@ from handlers.ai_outfit_generator import (
 from handlers.short_generation import (
     get_ambassadors_for_shorts,
     get_ambassador_outfits,
+    get_ambassador_products_for_shorts,
     generate_short_script,
     regenerate_scene,
     save_short_script,
@@ -560,6 +561,14 @@ def lambda_handler(event, context):
             event['pathParameters']['id'] = ambassador_id
             if http_method == 'GET':
                 return get_ambassador_outfits(event)
+        
+        # Handle /api/admin/shorts/ambassadors/{id}/products
+        elif len(parts) >= 7 and parts[4] == 'ambassadors' and parts[6] == 'products':
+            ambassador_id = parts[5]
+            event['pathParameters'] = event.get('pathParameters', {}) or {}
+            event['pathParameters']['id'] = ambassador_id
+            if http_method == 'GET':
+                return get_ambassador_products_for_shorts(event)
         
         # Handle /api/admin/shorts/{id} (GET/DELETE script by ID)
         elif len(parts) == 5:

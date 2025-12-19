@@ -43,7 +43,7 @@ def get_ambassadors_for_shorts(event):
     Get all ambassadors available for short creation.
     GET /api/admin/shorts/ambassadors
     
-    Returns ambassadors with their outfits count and description.
+    Returns ambassadors with their outfits count, description, and product_ids.
     """
     if not verify_admin(event):
         return response(401, {'error': 'Unauthorized'})
@@ -66,7 +66,8 @@ def get_ambassadors_for_shorts(event):
                 'gender': amb.get('gender', 'female'),
                 'profile_photo': amb.get('profile_photo', ''),
                 'outfits_count': outfits_count,
-                'has_showcase_videos': len(amb.get('showcase_videos', [])) > 0
+                'has_showcase_videos': len(amb.get('showcase_videos', [])) > 0,
+                'product_ids': amb.get('product_ids', [])  # Include product IDs
             })
         
         # Sort by name
@@ -145,6 +146,70 @@ def get_ambassador_outfits(event):
     except Exception as e:
         print(f"Error getting ambassador outfits: {e}")
         return response(500, {'error': f'Failed to get outfits: {str(e)}'})
+
+
+def get_ambassador_products_for_shorts(event):
+    """
+    Get all products assigned to a specific ambassador.
+    GET /api/admin/shorts/ambassadors/{id}/products
+    
+    Returns the ambassador's assigned products with full details.
+    """
+    if not verify_admin(event):
+        return response(401, {'error': 'Unauthorized'})
+    
+    params = event.get('pathParameters', {}) or {}
+    ambassador_id = params.get('id')
+    
+    if not ambassador_id:
+        return response(400, {'error': 'ambassador_id is required'})
+    
+    try:
+        result = ambassadors_table.get_item(Key={'id': ambassador_id})
+        ambassador = result.get('Item')
+        
+        if not ambassador:
+            return response(404, {'error': 'Ambassador not found'})
+        
+        # Get product IDs assigned to this ambassador
+        product_ids = ambassador.get('product_ids', [])
+        
+        if not product_ids:
+            return response(200, {
+                'success': True,
+                'ambassador_id': ambassador_id,
+                'products': [],
+                'count': 0
+            })
+        
+        # Fetch each product
+        products = []
+        for product_id in product_ids:
+            try:
+                product_result = products_table.get_item(Key={'id': product_id})
+                product = product_result.get('Item')
+                if product:
+                    products.append({
+                        'id': product.get('id'),
+                        'name': product.get('name', ''),
+                        'brand': product.get('brand', ''),
+                        'category': product.get('category', ''),
+                        'description': product.get('description', ''),
+                        'image_url': product.get('image_url', '')
+                    })
+            except Exception as e:
+                print(f"Error fetching product {product_id}: {e}")
+        
+        return response(200, {
+            'success': True,
+            'ambassador_id': ambassador_id,
+            'products': decimal_to_python(products),
+            'count': len(products)
+        })
+        
+    except Exception as e:
+        print(f"Error getting ambassador products: {e}")
+        return response(500, {'error': f'Failed to get products: {str(e)}'})
 
 
 def generate_short_script(event):
