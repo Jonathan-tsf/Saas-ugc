@@ -121,15 +121,15 @@ from handlers.ai_outfit_generator import (
 
 # Import short generation handlers
 from handlers.short_generation import (
-    get_scene_types,
-    get_outfits_for_short,
+    get_ambassadors_for_shorts,
+    get_ambassador_outfits,
     generate_short_script,
     regenerate_scene,
     save_short_script,
     get_short_scripts,
     get_short_script,
     delete_short_script,
-    update_scene_manually,
+    update_scene,
 )
 
 # Import authentication handlers
@@ -448,13 +448,12 @@ def lambda_handler(event, context):
         ('POST', '/api/admin/ambassadors/showcase-videos/select'): select_best_showcase_video,
         
         # Admin short/TikTok generation
-        ('GET', '/api/admin/shorts/scene-types'): get_scene_types,
-        ('GET', '/api/admin/shorts/outfits'): get_outfits_for_short,
+        ('GET', '/api/admin/shorts/ambassadors'): get_ambassadors_for_shorts,
         ('POST', '/api/admin/shorts/generate-script'): generate_short_script,
         ('POST', '/api/admin/shorts/regenerate-scene'): regenerate_scene,
         ('POST', '/api/admin/shorts/save'): save_short_script,
         ('GET', '/api/admin/shorts'): get_short_scripts,
-        ('PUT', '/api/admin/shorts/scene'): update_scene_manually,
+        ('PUT', '/api/admin/shorts/scene'): update_scene,
     }
     
     # Find matching route
@@ -543,16 +542,24 @@ def lambda_handler(event, context):
     
     # Short/TikTok script parameterized routes
     if path.startswith('/api/admin/shorts/') and path not in [
-        '/api/admin/shorts/scene-types',
-        '/api/admin/shorts/outfits', 
+        '/api/admin/shorts/ambassadors',
         '/api/admin/shorts/generate-script',
         '/api/admin/shorts/regenerate-scene',
         '/api/admin/shorts/save',
         '/api/admin/shorts/scene'
     ] and path != '/api/admin/shorts':
-        # Extract script_id from path: /api/admin/shorts/{id}
         parts = path.split('/')
-        if len(parts) >= 5:
+        
+        # Handle /api/admin/shorts/ambassadors/{id}/outfits
+        if len(parts) >= 7 and parts[4] == 'ambassadors' and parts[6] == 'outfits':
+            ambassador_id = parts[5]
+            event['pathParameters'] = event.get('pathParameters', {}) or {}
+            event['pathParameters']['id'] = ambassador_id
+            if http_method == 'GET':
+                return get_ambassador_outfits(event)
+        
+        # Handle /api/admin/shorts/{id} (GET/DELETE script by ID)
+        elif len(parts) == 5:
             script_id = parts[4]
             event['pathParameters'] = event.get('pathParameters', {}) or {}
             event['pathParameters']['id'] = script_id
