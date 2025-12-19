@@ -17,8 +17,9 @@ from config import (
 )
 from handlers.gemini_client import generate_image
 
-# DynamoDB table for shorts
+# DynamoDB tables
 shorts_table = dynamodb.Table('nano_banana_shorts')
+products_table = dynamodb.Table('products')
 
 # AWS Bedrock Claude Opus 4.5 pour le scripting (meilleure réflexion sur les durées)
 # Global inference profile for cross-region routing
@@ -155,7 +156,8 @@ def generate_short_script(event):
     
     Body: {
         "ambassador_id": "uuid",
-        "concept": "Optional theme or concept hint"  # Optional - AI can decide
+        "concept": "Optional theme or concept hint",  # Optional - AI can decide
+        "product_id": "uuid"  # Optional - product to promote naturally
     }
     """
     if not verify_admin(event):
@@ -168,6 +170,7 @@ def generate_short_script(event):
     
     ambassador_id = body.get('ambassador_id')
     concept = body.get('concept', '')  # Optional hint from user
+    product_id = body.get('product_id')  # Optional product to promote
     
     if not ambassador_id:
         return response(400, {'error': 'ambassador_id is required'})
@@ -182,6 +185,20 @@ def generate_short_script(event):
     except Exception as e:
         print(f"Error fetching ambassador: {e}")
         return response(500, {'error': 'Failed to fetch ambassador'})
+    
+    # Get product data if product_id provided
+    product = None
+    if product_id:
+        try:
+            product_result = products_table.get_item(Key={'id': product_id})
+            product = product_result.get('Item')
+            if product:
+                print(f"Product found: {product.get('name', 'Unknown')}")
+            else:
+                print(f"Product not found: {product_id}")
+        except Exception as e:
+            print(f"Error fetching product: {e}")
+            # Continue without product - not a blocking error
     
     # Extract ambassador info
     ambassador_name = ambassador.get('name', 'Unknown')
@@ -256,6 +273,34 @@ Pour chaque scène, demande-toi: "Combien de temps FAUT-IL pour que cette action
 FORMAT: JSON uniquement."""
 
     concept_text = f"\n\n💡 CONCEPT SUGGÉRÉ: {concept}\n(Tu peux t'en inspirer ou proposer mieux!)" if concept else ""
+    
+    # Build product section if product provided
+    product_text = ""
+    if product:
+        product_name = product.get('name', '')
+        product_brand = product.get('brand', '')
+        product_category = product.get('category', '')
+        product_description = product.get('description', '')
+        product_text = f"""
+
+🛍️ PRODUIT À INTÉGRER (SUBTIL & NATUREL):
+- Produit: {product_name}
+- Marque: {product_brand}
+- Catégorie: {product_category}
+- Description: {product_description}
+
+⚡ IMPORTANT PRODUIT:
+- Intègre ce produit de façon NATURELLE et AUTHENTIQUE
+- PAS de placement produit forcé ou commercial
+- L'ambassadrice doit utiliser le produit comme si c'était son choix personnel
+- Exemples d'intégration naturelle:
+  • Prendre une gorgée de sa boisson/shake entre exercices
+  • Vérifier ses stats sur sa montre connectée
+  • Appliquer une crème/spray naturellement
+  • Porter/utiliser l'équipement comme partie de sa routine
+- Le produit doit apparaître dans 1-2 scènes MAX, pas partout
+- Mentionne le produit dans prompt_image quand il apparaît (ex: "Put this person drinking from a protein shaker...")
+- Ajoute "product_placement": true pour les scènes où le produit apparaît"""
 
     user_prompt = f"""Crée un script TikTok UNIQUE pour:
 
@@ -266,7 +311,7 @@ FORMAT: JSON uniquement."""
 
 👕 TENUES DISPONIBLES:
 {outfits_text}
-{concept_text}
+{concept_text}{product_text}
 
 📅 Date: {datetime.now().strftime('%d/%m/%Y')}
 
@@ -285,6 +330,7 @@ Génère ce JSON:
   "target_platform": "tiktok/instagram/both",
   "mood": "energetic/chill/motivational/aesthetic/funny/intense",
   "music_suggestion": "Type de musique qui irait bien",
+  "product_id": "{product_id if product else 'null'}",
   "scenes": [
     {{
       "order": 1,
@@ -295,7 +341,8 @@ Génère ce JSON:
       "prompt_video": "La personne [action]. Caméra fixe.",
       "outfit_id": "<ID tenue>",
       "camera_angle": "close-up/medium/wide/pov",
-      "transition_to_next": "cut/fade/swipe/none"
+      "transition_to_next": "cut/fade/swipe/none",
+      "product_placement": false  // true si le produit apparaît dans cette scène
     }}
   ]
 }}
@@ -351,6 +398,21 @@ Génère ce JSON:
         script['updated_at'] = datetime.now().isoformat()
         script['status'] = 'draft'
         
+        # Add product info if provided
+        if product:
+            script['product_id'] = product_id
+            script['product'] = {
+                'id': product_id,
+                'name': product.get('name', ''),
+                'brand': product.get('brand', ''),
+                'category': product.get('category', ''),
+                'description': product.get('description', ''),
+                'image_url': product.get('image_url', '')
+            }
+        else:
+            script['product_id'] = None
+            script['product'] = None
+        
         # Validate scenes
         if 'scenes' not in script or not script['scenes']:
             raise Exception("No scenes generated")
@@ -358,7 +420,7 @@ Génère ce JSON:
         # Create outfit map for quick lookup
         outfit_map = {o['id']: o for o in outfits}
         
-        # Enrich scenes with outfit details
+        # Enrich scenes with outfit details and product info
         for scene in script['scenes']:
             outfit_id = scene.get('outfit_id')
             if outfit_id and outfit_id in outfit_map:
@@ -376,6 +438,10 @@ Génère ce JSON:
             scene['status'] = 'pending'  # pending, generating, completed, error
             scene['generated_image_url'] = None
             scene['generated_video_url'] = None
+            
+            # Ensure product_placement field exists
+            if 'product_placement' not in scene:
+                scene['product_placement'] = False
         
         return response(200, {
             'success': True,
