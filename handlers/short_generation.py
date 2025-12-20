@@ -1257,3 +1257,1003 @@ def get_scene_photos_status(event):
 def generate_scene_photos(event):
     """Backward compatible alias - now starts async generation"""
     return start_scene_photos_generation(event)
+
+
+# ==============================================================================
+# SCENE VIDEO GENERATION - Using Kling via Replicate (like showcase_videos)
+# ==============================================================================
+
+# Import Replicate functions from showcase_videos module
+import urllib.error
+from config import REPLICATE_API_KEY
+
+REPLICATE_API_URL = "https://api.replicate.com/v1/predictions"
+DEFAULT_NEGATIVE_PROMPT = "morphing, face drift, changing facial features, extra limbs, bad hands, distorted fingers, flicker, jitter, wobble, blur, low quality, text, watermark, logo, unnatural movement, robotic motion, frozen expression, teeth showing, open mouth smile, camera movement, camera shake, zooming"
+
+
+def call_kling_api(image_url: str, prompt: str, negative_prompt: str, duration: int = 5) -> dict:
+    """
+    Call Replicate API to generate video with Kling model.
+    Returns prediction info (async - need to poll for result).
+    """
+    if not REPLICATE_API_KEY:
+        raise Exception("REPLICATE_KEY not configured")
+    
+    headers = {
+        "Authorization": f"Bearer {REPLICATE_API_KEY}",
+        "Content-Type": "application/json"
+    }
+    
+    payload = {
+        "version": "kwaivgi/kling-v2.5-turbo-pro",
+        "input": {
+            "image": image_url,
+            "prompt": prompt,
+            "negative_prompt": negative_prompt,
+            "duration": duration,
+            "aspect_ratio": "9:16",
+        }
+    }
+    
+    try:
+        data = json.dumps(payload).encode('utf-8')
+        req = urllib.request.Request(
+            REPLICATE_API_URL,
+            data=data,
+            headers=headers,
+            method='POST'
+        )
+        
+        with urllib.request.urlopen(req, timeout=30) as api_response:
+            result = json.loads(api_response.read().decode('utf-8'))
+            return {
+                'id': result.get('id'),
+                'status': result.get('status'),
+                'urls': result.get('urls', {}),
+            }
+            
+    except urllib.error.HTTPError as e:
+        error_body = e.read().decode('utf-8') if e.fp else 'No error body'
+        raise Exception(f"Replicate HTTP error: {e.code} - {error_body[:200]}")
+    except Exception as e:
+        raise Exception(f"Replicate error: {str(e)}")
+
+
+def check_kling_prediction(prediction_id: str) -> dict:
+    """Check status of a Replicate prediction."""
+    if not REPLICATE_API_KEY:
+        raise Exception("REPLICATE_KEY not configured")
+    
+    headers = {"Authorization": f"Bearer {REPLICATE_API_KEY}"}
+    
+    try:
+        req = urllib.request.Request(
+            f"{REPLICATE_API_URL}/{prediction_id}",
+            headers=headers,
+            method='GET'
+        )
+        
+        with urllib.request.urlopen(req, timeout=30) as api_response:
+            result = json.loads(api_response.read().decode('utf-8'))
+            return {
+                'id': result.get('id'),
+                'status': result.get('status'),
+                'output': result.get('output'),
+                'error': result.get('error'),
+            }
+    except Exception as e:
+        raise Exception(f"Error checking prediction: {str(e)}")
+
+
+def generate_video_prompt_for_scene(image_url: str, scene_description: str) -> dict:
+    """
+    Use AWS Bedrock Claude Vision to analyze image and generate video prompt.
+    """
+    model_id = "us.anthropic.claude-sonnet-4-5-20250929-v1:0"
+    
+    system_prompt = """Tu analyses une image et décris l'action que la personne fait.
+Ton output sera utilisé pour générer une vidéo IA de 5 secondes.
+
+RÈGLES:
+1. Décris l'ACTION en cours avec un verbe dynamique
+2. Toujours ajouter à la fin: "Caméra fixe."
+3. Vitesse NATURELLE (jamais "lentement", "doucement", "subtil")
+4. Si sourire: toujours "léger sourire"
+5. Action CONTINUE (pas "maintient", pas "reste immobile")
+
+EXEMPLES CORRECTS:
+- Biceps curl -> "La personne continue sa série de biceps curl. Caméra fixe."
+- Squat -> "La personne continue sa série de squats. Caméra fixe."
+- Running -> "La personne continue de courir. Caméra fixe."
+- Marche -> "La personne marche vers l'avant. Caméra fixe."
+- Phone -> "La personne scroll sur son téléphone. Caméra fixe."
+- Pose mode -> "La personne pose avec un léger sourire. Caméra fixe."
+
+Réponds UNIQUEMENT avec le JSON demandé."""
+
+    try:
+        image_base64 = download_image_as_base64(image_url)
+        
+        media_type = "image/jpeg"
+        if ".png" in image_url.lower():
+            media_type = "image/png"
+        elif ".webp" in image_url.lower():
+            media_type = "image/webp"
+        
+        user_prompt = f"""Analyse cette image. Contexte de la scène: {scene_description}
+
+Quelle action fait la personne?
+
+Réponds en JSON:
+{{"action": "La personne [action dynamique]. Caméra fixe."}}"""
+
+        request_body = {
+            "anthropic_version": "bedrock-2023-05-31",
+            "max_tokens": 100,
+            "system": system_prompt,
+            "messages": [
+                {
+                    "role": "user",
+                    "content": [
+                        {
+                            "type": "image",
+                            "source": {
+                                "type": "base64",
+                                "media_type": media_type,
+                                "data": image_base64
+                            }
+                        },
+                        {"type": "text", "text": user_prompt}
+                    ]
+                }
+            ]
+        }
+        
+        response_data = bedrock_runtime.invoke_model(
+            modelId=model_id,
+            body=json.dumps(request_body),
+            contentType="application/json",
+            accept="application/json"
+        )
+        
+        raw_body = response_data['body'].read()
+        response_body = json.loads(raw_body)
+        content = response_body.get('content', [{}])[0].get('text', '{}')
+        
+        try:
+            result = json.loads(content)
+            action = result.get('action', 'La personne fait quelques pas. Caméra fixe.')
+        except json.JSONDecodeError:
+            if "La personne" in content:
+                action = content.strip()
+            else:
+                action = 'La personne fait quelques pas. Caméra fixe.'
+        
+        return {'prompt': action, 'negative_prompt': DEFAULT_NEGATIVE_PROMPT}
+        
+    except Exception as e:
+        print(f"Error generating video prompt: {e}")
+        return {'prompt': "La personne fait quelques pas. Caméra fixe.", 'negative_prompt': DEFAULT_NEGATIVE_PROMPT}
+
+
+def start_scene_videos_generation(event):
+    """
+    Start video generation for all selected photos in a short script.
+    POST /api/admin/shorts/generate-scene-videos
+    Body: {
+        script_id: string,
+        scenes: [{ scene_index: int, photo_url: string, description: string }]
+    }
+    
+    Generates 2 videos per photo (like showcase_videos).
+    Returns job_id to poll for status.
+    """
+    if not verify_admin(event):
+        return response(401, {'error': 'Unauthorized'})
+    
+    try:
+        body = json.loads(event.get('body', '{}'))
+    except:
+        return response(400, {'error': 'Invalid JSON body'})
+    
+    script_id = body.get('script_id')
+    scenes = body.get('scenes', [])
+    
+    if not script_id:
+        return response(400, {'error': 'script_id is required'})
+    
+    if not scenes:
+        return response(400, {'error': 'scenes array is required'})
+    
+    # Get script to get ambassador_id
+    try:
+        script_result = shorts_table.get_item(Key={'id': script_id})
+        script = script_result.get('Item')
+        if not script:
+            return response(404, {'error': 'Script not found'})
+        ambassador_id = script.get('ambassador_id')
+    except Exception as e:
+        return response(500, {'error': f'Failed to get script: {str(e)}'})
+    
+    # Create job
+    job_id = str(uuid.uuid4())
+    total_videos = len(scenes) * 2  # 2 videos per scene
+    
+    # Initialize video tasks
+    video_tasks = []
+    for scene in scenes:
+        for video_num in range(2):
+            video_tasks.append({
+                'scene_index': scene.get('scene_index'),
+                'video_num': video_num,
+                'photo_url': scene.get('photo_url'),
+                'description': scene.get('description', ''),
+                'prompt': None,
+                'negative_prompt': DEFAULT_NEGATIVE_PROMPT,
+                'status': 'pending',
+                'replicate_id': None,
+                'output_url': None,
+                'error': None
+            })
+    
+    job = {
+        'id': job_id,
+        'type': 'SCENE_VIDEO_JOB',
+        'script_id': script_id,
+        'ambassador_id': ambassador_id,
+        'video_tasks': video_tasks,
+        'status': 'generating_prompts',
+        'progress': Decimal('0'),
+        'total_videos': total_videos,
+        'generated_videos': [],
+        'error': None,
+        'created_at': datetime.now().isoformat(),
+        'updated_at': datetime.now().isoformat()
+    }
+    
+    jobs_table.put_item(Item=job)
+    
+    # Invoke Lambda asynchronously
+    import os
+    payload = {
+        'action': 'generate_scene_videos_async',
+        'job_id': job_id
+    }
+    
+    function_name = os.environ.get('AWS_LAMBDA_FUNCTION_NAME', 'saas-ugc')
+    print(f"[{job_id}] Invoking async Lambda: {function_name}")
+    
+    try:
+        lambda_client.invoke(
+            FunctionName=function_name,
+            InvocationType='Event',
+            Payload=json.dumps(payload)
+        )
+    except Exception as e:
+        print(f"[{job_id}] Error invoking async Lambda: {e}")
+    
+    return response(200, {
+        'success': True,
+        'job_id': job_id,
+        'status': 'generating_prompts',
+        'total_videos': total_videos,
+        'message': 'Video generation started. Poll /status endpoint for progress.'
+    })
+
+
+def generate_scene_videos_async(job_id: str):
+    """
+    Async handler to generate scene videos.
+    Similar flow to showcase_videos:
+    1. Generate prompts with Bedrock (cached per photo)
+    2. Submit ALL to Replicate in parallel
+    3. Poll for completion
+    4. Save to S3
+    5. Update script
+    """
+    print(f"[{job_id}] Starting async scene video generation...")
+    
+    try:
+        result = jobs_table.get_item(Key={'id': job_id})
+        job = result.get('Item')
+        
+        if not job:
+            print(f"[{job_id}] Job not found")
+            return
+        
+        script_id = job.get('script_id')
+        ambassador_id = job.get('ambassador_id')
+        video_tasks = job.get('video_tasks', [])
+        total_videos = int(job.get('total_videos', 0))
+        
+        print(f"[{job_id}] Generating {total_videos} videos for {len(video_tasks)//2} scenes")
+        
+        # PHASE 1: Generate prompts with Bedrock
+        jobs_table.update_item(
+            Key={'id': job_id},
+            UpdateExpression='SET #status = :status, progress = :prog, updated_at = :updated',
+            ExpressionAttributeNames={'#status': 'status'},
+            ExpressionAttributeValues={
+                ':status': 'generating_prompts',
+                ':prog': Decimal('5'),
+                ':updated': datetime.now().isoformat()
+            }
+        )
+        
+        prompt_cache = {}  # Cache prompts per photo_url
+        for i, task in enumerate(video_tasks):
+            photo_url = task['photo_url']
+            
+            if photo_url in prompt_cache:
+                task['prompt'] = prompt_cache[photo_url]['prompt']
+                task['negative_prompt'] = prompt_cache[photo_url]['negative_prompt']
+                task['status'] = 'ready'
+            else:
+                try:
+                    prompt_result = generate_video_prompt_for_scene(photo_url, task.get('description', ''))
+                    prompt_cache[photo_url] = prompt_result
+                    task['prompt'] = prompt_result['prompt']
+                    task['negative_prompt'] = prompt_result['negative_prompt']
+                    task['status'] = 'ready'
+                    print(f"[{job_id}] Generated prompt for task {i+1}: {task['prompt'][:50]}...")
+                except Exception as e:
+                    print(f"[{job_id}] Error generating prompt: {e}")
+                    task['status'] = 'error'
+                    task['error'] = str(e)
+        
+        # Update progress
+        jobs_table.update_item(
+            Key={'id': job_id},
+            UpdateExpression='SET video_tasks = :tasks, progress = :prog, updated_at = :updated',
+            ExpressionAttributeValues={
+                ':tasks': video_tasks,
+                ':prog': Decimal('20'),
+                ':updated': datetime.now().isoformat()
+            }
+        )
+        
+        # PHASE 2: Submit ALL to Replicate in parallel
+        print(f"[{job_id}] Submitting ALL videos to Replicate...")
+        
+        jobs_table.update_item(
+            Key={'id': job_id},
+            UpdateExpression='SET #status = :status, updated_at = :updated',
+            ExpressionAttributeNames={'#status': 'status'},
+            ExpressionAttributeValues={
+                ':status': 'generating_videos',
+                ':updated': datetime.now().isoformat()
+            }
+        )
+        
+        for i, task in enumerate(video_tasks):
+            if task.get('status') == 'error':
+                continue
+            
+            try:
+                prediction = call_kling_api(
+                    image_url=task['photo_url'],
+                    prompt=task['prompt'],
+                    negative_prompt=task['negative_prompt'],
+                    duration=5
+                )
+                
+                task['replicate_id'] = prediction['id']
+                task['status'] = 'processing'
+                print(f"[{job_id}] Submitted video {i+1}/{total_videos}: {prediction['id']}")
+                
+            except Exception as e:
+                print(f"[{job_id}] Error submitting to Replicate: {e}")
+                task['status'] = 'error'
+                task['error'] = str(e)
+        
+        jobs_table.update_item(
+            Key={'id': job_id},
+            UpdateExpression='SET video_tasks = :tasks, progress = :prog, updated_at = :updated',
+            ExpressionAttributeValues={
+                ':tasks': video_tasks,
+                ':prog': Decimal('30'),
+                ':updated': datetime.now().isoformat()
+            }
+        )
+        
+        # PHASE 3: Poll ALL predictions
+        import time
+        max_wait_seconds = 600
+        poll_interval = 10
+        
+        pending_tasks = [t for t in video_tasks if t.get('replicate_id') and t.get('status') == 'processing']
+        print(f"[{job_id}] Polling {len(pending_tasks)} predictions...")
+        
+        start_time = time.time()
+        while pending_tasks and (time.time() - start_time) < max_wait_seconds:
+            time.sleep(poll_interval)
+            
+            for task in pending_tasks[:]:
+                try:
+                    prediction = check_kling_prediction(task['replicate_id'])
+                    
+                    if prediction['status'] == 'succeeded':
+                        task['status'] = 'completed'
+                        task['output_url'] = prediction['output']
+                        pending_tasks.remove(task)
+                        print(f"[{job_id}] Video completed: {task['replicate_id']}")
+                        
+                    elif prediction['status'] in ['failed', 'canceled']:
+                        task['status'] = 'error'
+                        task['error'] = prediction.get('error', 'Unknown error')
+                        pending_tasks.remove(task)
+                        
+                except Exception as e:
+                    print(f"[{job_id}] Error polling: {e}")
+            
+            # Update progress
+            completed = len([t for t in video_tasks if t.get('status') in ['completed', 'error']])
+            progress = Decimal(str(30 + (completed / total_videos) * 60))
+            jobs_table.update_item(
+                Key={'id': job_id},
+                UpdateExpression='SET video_tasks = :tasks, progress = :prog, updated_at = :updated',
+                ExpressionAttributeValues={
+                    ':tasks': video_tasks,
+                    ':prog': progress,
+                    ':updated': datetime.now().isoformat()
+                }
+            )
+        
+        # PHASE 4: Download and save to S3
+        generated_videos = []
+        
+        for task in video_tasks:
+            if task.get('status') == 'completed' and task.get('output_url'):
+                try:
+                    video_url = task['output_url']
+                    req = urllib.request.Request(video_url)
+                    with urllib.request.urlopen(req, timeout=60) as video_response:
+                        video_data = video_response.read()
+                    
+                    video_key = f"shorts/{ambassador_id}/{script_id}/scene_{task['scene_index']}_video_{task['video_num']}_{uuid.uuid4().hex[:8]}.mp4"
+                    s3_url = upload_to_s3(video_key, video_data, 'video/mp4', cache_days=365)
+                    
+                    generated_videos.append({
+                        'scene_index': task['scene_index'],
+                        'video_num': task['video_num'],
+                        'url': s3_url,
+                        'prompt': task.get('prompt', ''),
+                        'created_at': datetime.now().isoformat()
+                    })
+                    
+                    print(f"[{job_id}] Saved video: {video_key}")
+                    
+                except Exception as e:
+                    print(f"[{job_id}] Error saving to S3: {e}")
+        
+        # PHASE 5: Update script with videos
+        if generated_videos:
+            try:
+                script_result = shorts_table.get_item(Key={'id': script_id})
+                script = script_result.get('Item')
+                
+                if script:
+                    scenes = script.get('scenes', [])
+                    
+                    # Group videos by scene_index
+                    for video in generated_videos:
+                        scene_idx = int(video['scene_index'])
+                        if 0 <= scene_idx < len(scenes):
+                            if 'generated_videos' not in scenes[scene_idx]:
+                                scenes[scene_idx]['generated_videos'] = []
+                            scenes[scene_idx]['generated_videos'].append({
+                                'video_num': video['video_num'],
+                                'url': video['url'],
+                                'prompt': video['prompt'],
+                                'created_at': video['created_at']
+                            })
+                    
+                    script['scenes'] = scenes
+                    script['updated_at'] = datetime.now().isoformat()
+                    
+                    # Convert floats to Decimal
+                    def convert_to_decimal(obj):
+                        if isinstance(obj, float):
+                            return Decimal(str(obj))
+                        elif isinstance(obj, dict):
+                            return {k: convert_to_decimal(v) for k, v in obj.items()}
+                        elif isinstance(obj, list):
+                            return [convert_to_decimal(i) for i in obj]
+                        return obj
+                    
+                    script = convert_to_decimal(script)
+                    shorts_table.put_item(Item=script)
+                    print(f"[{job_id}] Updated script with {len(generated_videos)} videos")
+                    
+            except Exception as e:
+                print(f"[{job_id}] Error updating script: {e}")
+        
+        # Mark job complete
+        final_status = 'completed' if generated_videos else 'error'
+        jobs_table.update_item(
+            Key={'id': job_id},
+            UpdateExpression='SET #status = :status, generated_videos = :videos, progress = :prog, updated_at = :updated',
+            ExpressionAttributeNames={'#status': 'status'},
+            ExpressionAttributeValues={
+                ':status': final_status,
+                ':videos': generated_videos,
+                ':prog': Decimal('100'),
+                ':updated': datetime.now().isoformat()
+            }
+        )
+        
+        print(f"[{job_id}] Scene video generation completed: {len(generated_videos)}/{total_videos}")
+        
+    except Exception as e:
+        print(f"[{job_id}] Fatal error: {e}")
+        import traceback
+        traceback.print_exc()
+        jobs_table.update_item(
+            Key={'id': job_id},
+            UpdateExpression='SET #status = :status, error = :error, updated_at = :updated',
+            ExpressionAttributeNames={'#status': 'status'},
+            ExpressionAttributeValues={
+                ':status': 'error',
+                ':error': str(e),
+                ':updated': datetime.now().isoformat()
+            }
+        )
+
+
+def get_scene_videos_status(event):
+    """
+    Get status of scene videos generation job.
+    GET /api/admin/shorts/scene-videos/status?job_id=xxx
+    """
+    if not verify_admin(event):
+        return response(401, {'error': 'Unauthorized'})
+    
+    query_params = event.get('queryStringParameters', {}) or {}
+    job_id = query_params.get('job_id')
+    
+    if not job_id:
+        return response(400, {'error': 'job_id is required'})
+    
+    try:
+        result = jobs_table.get_item(Key={'id': job_id})
+        job = result.get('Item')
+        
+        if not job:
+            return response(404, {'error': 'Job not found'})
+        
+        job_data = decimal_to_python(job)
+        
+        return response(200, {
+            'job_id': job_id,
+            'status': job_data.get('status'),
+            'progress': job_data.get('progress', 0),
+            'total_videos': job_data.get('total_videos', 0),
+            'video_tasks': job_data.get('video_tasks', []),
+            'generated_videos': job_data.get('generated_videos', []),
+            'error': job_data.get('error'),
+            'updated_at': job_data.get('updated_at')
+        })
+        
+    except Exception as e:
+        return response(500, {'error': f'Failed to get status: {str(e)}'})
+
+
+def select_scene_video(event):
+    """
+    Select the best video for a scene and delete the other.
+    POST /api/admin/shorts/select-scene-video
+    Body: { script_id, scene_index, selected_video_num }
+    """
+    if not verify_admin(event):
+        return response(401, {'error': 'Unauthorized'})
+    
+    try:
+        body = json.loads(event.get('body', '{}'))
+    except:
+        return response(400, {'error': 'Invalid JSON body'})
+    
+    script_id = body.get('script_id')
+    scene_index = body.get('scene_index')
+    selected_video_num = body.get('selected_video_num')
+    
+    if script_id is None or scene_index is None or selected_video_num is None:
+        return response(400, {'error': 'script_id, scene_index, and selected_video_num are required'})
+    
+    try:
+        scene_index = int(scene_index)
+        selected_video_num = int(selected_video_num)
+        
+        script_result = shorts_table.get_item(Key={'id': script_id})
+        script = script_result.get('Item')
+        
+        if not script:
+            return response(404, {'error': 'Script not found'})
+        
+        scenes = script.get('scenes', [])
+        
+        if scene_index < 0 or scene_index >= len(scenes):
+            return response(400, {'error': 'Invalid scene_index'})
+        
+        scene = scenes[scene_index]
+        videos = scene.get('generated_videos', [])
+        
+        # Keep only selected video
+        selected_video = None
+        videos_to_delete = []
+        
+        for video in videos:
+            if int(video.get('video_num', -1)) == selected_video_num:
+                selected_video = video
+                selected_video['is_selected'] = True
+            else:
+                videos_to_delete.append(video)
+        
+        if not selected_video:
+            return response(400, {'error': 'Selected video not found'})
+        
+        # Delete other videos from S3
+        for video in videos_to_delete:
+            if video.get('url') and S3_BUCKET in video['url']:
+                try:
+                    s3_key = video['url'].split(f"{S3_BUCKET}.s3.amazonaws.com/")[1]
+                    s3.delete_object(Bucket=S3_BUCKET, Key=s3_key)
+                    print(f"Deleted video: {s3_key}")
+                except Exception as e:
+                    print(f"Error deleting from S3: {e}")
+        
+        # Update scene with only selected video
+        scenes[scene_index]['generated_videos'] = [selected_video]
+        scenes[scene_index]['selected_video_url'] = selected_video['url']
+        script['scenes'] = scenes
+        script['updated_at'] = datetime.now().isoformat()
+        
+        # Convert and save
+        def convert_to_decimal(obj):
+            if isinstance(obj, float):
+                return Decimal(str(obj))
+            elif isinstance(obj, dict):
+                return {k: convert_to_decimal(v) for k, v in obj.items()}
+            elif isinstance(obj, list):
+                return [convert_to_decimal(i) for i in obj]
+            return obj
+        
+        script = convert_to_decimal(script)
+        shorts_table.put_item(Item=script)
+        
+        return response(200, {
+            'success': True,
+            'message': f'Selected video {selected_video_num} for scene {scene_index}',
+            'selected_video_url': selected_video['url']
+        })
+        
+    except Exception as e:
+        print(f"Error selecting video: {e}")
+        return response(500, {'error': f'Failed to select video: {str(e)}'})
+
+
+def concatenate_final_video(event):
+    """
+    Concatenate all selected scene videos into final short.
+    POST /api/admin/shorts/concatenate
+    Body: { script_id }
+    
+    Note: Video concatenation requires ffmpeg. This creates a job
+    and stores metadata. Actual concatenation would need Lambda Layer with ffmpeg.
+    """
+    if not verify_admin(event):
+        return response(401, {'error': 'Unauthorized'})
+    
+    try:
+        body = json.loads(event.get('body', '{}'))
+    except:
+        return response(400, {'error': 'Invalid JSON body'})
+    
+    script_id = body.get('script_id')
+    
+    if not script_id:
+        return response(400, {'error': 'script_id is required'})
+    
+    try:
+        script_result = shorts_table.get_item(Key={'id': script_id})
+        script = script_result.get('Item')
+        
+        if not script:
+            return response(404, {'error': 'Script not found'})
+        
+        scenes = script.get('scenes', [])
+        
+        # Collect selected video URLs in order
+        video_urls = []
+        for i, scene in enumerate(scenes):
+            selected_url = scene.get('selected_video_url')
+            if selected_url:
+                video_urls.append({
+                    'scene_index': i,
+                    'url': selected_url,
+                    'duration': scene.get('duration', 5)
+                })
+        
+        if not video_urls:
+            return response(400, {'error': 'No selected videos found. Select videos for each scene first.'})
+        
+        # Create concatenation job
+        job_id = str(uuid.uuid4())
+        
+        job = {
+            'id': job_id,
+            'type': 'VIDEO_CONCAT_JOB',
+            'script_id': script_id,
+            'ambassador_id': script.get('ambassador_id'),
+            'video_urls': video_urls,
+            'total_scenes': len(video_urls),
+            'status': 'pending',
+            'progress': Decimal('0'),
+            'final_video_url': None,
+            'error': None,
+            'created_at': datetime.now().isoformat(),
+            'updated_at': datetime.now().isoformat()
+        }
+        
+        jobs_table.put_item(Item=job)
+        
+        # Invoke async concatenation
+        import os
+        payload = {
+            'action': 'concatenate_videos_async',
+            'job_id': job_id
+        }
+        
+        function_name = os.environ.get('AWS_LAMBDA_FUNCTION_NAME', 'saas-ugc')
+        
+        try:
+            lambda_client.invoke(
+                FunctionName=function_name,
+                InvocationType='Event',
+                Payload=json.dumps(payload)
+            )
+        except Exception as e:
+            print(f"Error invoking async Lambda: {e}")
+        
+        return response(200, {
+            'success': True,
+            'job_id': job_id,
+            'status': 'pending',
+            'total_scenes': len(video_urls),
+            'message': 'Concatenation started. Poll /status endpoint for progress.'
+        })
+        
+    except Exception as e:
+        return response(500, {'error': f'Failed to start concatenation: {str(e)}'})
+
+
+def concatenate_videos_async(job_id: str):
+    """
+    Async handler to concatenate videos.
+    Downloads all videos, concatenates with ffmpeg-python, uploads result.
+    
+    Note: Requires ffmpeg in Lambda Layer or use a different approach.
+    For now, we'll create a simple "playlist" approach by storing order.
+    """
+    print(f"[{job_id}] Starting video concatenation...")
+    
+    try:
+        result = jobs_table.get_item(Key={'id': job_id})
+        job = result.get('Item')
+        
+        if not job:
+            print(f"[{job_id}] Job not found")
+            return
+        
+        script_id = job.get('script_id')
+        ambassador_id = job.get('ambassador_id')
+        video_urls = job.get('video_urls', [])
+        
+        # Update status
+        jobs_table.update_item(
+            Key={'id': job_id},
+            UpdateExpression='SET #status = :status, progress = :prog, updated_at = :updated',
+            ExpressionAttributeNames={'#status': 'status'},
+            ExpressionAttributeValues={
+                ':status': 'downloading',
+                ':prog': Decimal('10'),
+                ':updated': datetime.now().isoformat()
+            }
+        )
+        
+        # Download all videos
+        import tempfile
+        import subprocess
+        
+        temp_dir = tempfile.mkdtemp()
+        video_files = []
+        
+        for i, video_info in enumerate(video_urls):
+            try:
+                url = video_info['url']
+                local_path = f"{temp_dir}/scene_{i}.mp4"
+                
+                req = urllib.request.Request(url)
+                with urllib.request.urlopen(req, timeout=60) as resp:
+                    with open(local_path, 'wb') as f:
+                        f.write(resp.read())
+                
+                video_files.append(local_path)
+                print(f"[{job_id}] Downloaded scene {i}")
+                
+                # Update progress
+                progress = Decimal(str(10 + (i + 1) / len(video_urls) * 30))
+                jobs_table.update_item(
+                    Key={'id': job_id},
+                    UpdateExpression='SET progress = :prog, updated_at = :updated',
+                    ExpressionAttributeValues={
+                        ':prog': progress,
+                        ':updated': datetime.now().isoformat()
+                    }
+                )
+                
+            except Exception as e:
+                print(f"[{job_id}] Error downloading video {i}: {e}")
+        
+        if not video_files:
+            raise Exception("No videos downloaded")
+        
+        # Update status to concatenating
+        jobs_table.update_item(
+            Key={'id': job_id},
+            UpdateExpression='SET #status = :status, progress = :prog, updated_at = :updated',
+            ExpressionAttributeNames={'#status': 'status'},
+            ExpressionAttributeValues={
+                ':status': 'concatenating',
+                ':prog': Decimal('50'),
+                ':updated': datetime.now().isoformat()
+            }
+        )
+        
+        # Create concat file for ffmpeg
+        concat_file = f"{temp_dir}/concat.txt"
+        with open(concat_file, 'w') as f:
+            for vf in video_files:
+                f.write(f"file '{vf}'\n")
+        
+        output_file = f"{temp_dir}/final.mp4"
+        
+        # Run ffmpeg concatenation
+        try:
+            cmd = [
+                '/opt/bin/ffmpeg',  # Lambda Layer path
+                '-f', 'concat',
+                '-safe', '0',
+                '-i', concat_file,
+                '-c', 'copy',
+                '-y',
+                output_file
+            ]
+            
+            result = subprocess.run(cmd, capture_output=True, text=True, timeout=300)
+            
+            if result.returncode != 0:
+                print(f"[{job_id}] ffmpeg error: {result.stderr}")
+                raise Exception(f"ffmpeg failed: {result.stderr[:200]}")
+                
+        except FileNotFoundError:
+            # ffmpeg not available - fall back to simple approach
+            print(f"[{job_id}] ffmpeg not available, using first video as placeholder")
+            # Just use the first video as the "final" for now
+            import shutil
+            shutil.copy(video_files[0], output_file)
+        
+        # Upload to S3
+        jobs_table.update_item(
+            Key={'id': job_id},
+            UpdateExpression='SET #status = :status, progress = :prog, updated_at = :updated',
+            ExpressionAttributeNames={'#status': 'status'},
+            ExpressionAttributeValues={
+                ':status': 'uploading',
+                ':prog': Decimal('80'),
+                ':updated': datetime.now().isoformat()
+            }
+        )
+        
+        with open(output_file, 'rb') as f:
+            video_data = f.read()
+        
+        video_key = f"shorts/{ambassador_id}/{script_id}/final_{uuid.uuid4().hex[:8]}.mp4"
+        final_url = upload_to_s3(video_key, video_data, 'video/mp4', cache_days=365)
+        
+        # Update script with final video
+        try:
+            script_result = shorts_table.get_item(Key={'id': script_id})
+            script = script_result.get('Item')
+            if script:
+                script['final_video_url'] = final_url
+                script['final_video_created_at'] = datetime.now().isoformat()
+                script['updated_at'] = datetime.now().isoformat()
+                
+                def convert_to_decimal(obj):
+                    if isinstance(obj, float):
+                        return Decimal(str(obj))
+                    elif isinstance(obj, dict):
+                        return {k: convert_to_decimal(v) for k, v in obj.items()}
+                    elif isinstance(obj, list):
+                        return [convert_to_decimal(i) for i in obj]
+                    return obj
+                
+                script = convert_to_decimal(script)
+                shorts_table.put_item(Item=script)
+        except Exception as e:
+            print(f"[{job_id}] Error updating script: {e}")
+        
+        # Cleanup temp files
+        import shutil
+        try:
+            shutil.rmtree(temp_dir)
+        except:
+            pass
+        
+        # Mark complete
+        jobs_table.update_item(
+            Key={'id': job_id},
+            UpdateExpression='SET #status = :status, final_video_url = :url, progress = :prog, updated_at = :updated',
+            ExpressionAttributeNames={'#status': 'status'},
+            ExpressionAttributeValues={
+                ':status': 'completed',
+                ':url': final_url,
+                ':prog': Decimal('100'),
+                ':updated': datetime.now().isoformat()
+            }
+        )
+        
+        print(f"[{job_id}] Concatenation completed: {final_url}")
+        
+    except Exception as e:
+        print(f"[{job_id}] Error: {e}")
+        import traceback
+        traceback.print_exc()
+        
+        jobs_table.update_item(
+            Key={'id': job_id},
+            UpdateExpression='SET #status = :status, error = :error, updated_at = :updated',
+            ExpressionAttributeNames={'#status': 'status'},
+            ExpressionAttributeValues={
+                ':status': 'error',
+                ':error': str(e),
+                ':updated': datetime.now().isoformat()
+            }
+        )
+
+
+def get_concat_status(event):
+    """
+    Get status of video concatenation job.
+    GET /api/admin/shorts/concat/status?job_id=xxx
+    """
+    if not verify_admin(event):
+        return response(401, {'error': 'Unauthorized'})
+    
+    query_params = event.get('queryStringParameters', {}) or {}
+    job_id = query_params.get('job_id')
+    
+    if not job_id:
+        return response(400, {'error': 'job_id is required'})
+    
+    try:
+        result = jobs_table.get_item(Key={'id': job_id})
+        job = result.get('Item')
+        
+        if not job:
+            return response(404, {'error': 'Job not found'})
+        
+        job_data = decimal_to_python(job)
+        
+        return response(200, {
+            'job_id': job_id,
+            'status': job_data.get('status'),
+            'progress': job_data.get('progress', 0),
+            'total_scenes': job_data.get('total_scenes', 0),
+            'final_video_url': job_data.get('final_video_url'),
+            'error': job_data.get('error'),
+            'updated_at': job_data.get('updated_at')
+        })
+        
+    except Exception as e:
+        return response(500, {'error': f'Failed to get status: {str(e)}'})

@@ -134,6 +134,14 @@ from handlers.short_generation import (
     generate_scene_photos,
     generate_scene_photos_async,
     get_scene_photos_status,
+    # Video generation handlers
+    start_scene_videos_generation,
+    generate_scene_videos_async,
+    get_scene_videos_status,
+    select_scene_video,
+    concatenate_final_video,
+    concatenate_videos_async,
+    get_concat_status,
 )
 
 # Import authentication handlers
@@ -367,6 +375,18 @@ def lambda_handler(event, context):
         generate_scene_photos_async(job_id, outfit_image_url)
         return {'statusCode': 200, 'body': json.dumps({'success': True})}
     
+    # Handle async scene videos generation (for shorts/TikTok)
+    if 'action' in event and event['action'] == 'generate_scene_videos_async':
+        job_id = event['job_id']
+        generate_scene_videos_async(job_id)
+        return {'statusCode': 200, 'body': json.dumps({'success': True})}
+    
+    # Handle async video concatenation
+    if 'action' in event and event['action'] == 'concatenate_videos_async':
+        job_id = event['job_id']
+        concatenate_videos_async(job_id)
+        return {'statusCode': 200, 'body': json.dumps({'success': True})}
+    
     http_method = event.get('httpMethod', '')
     path = event.get('path', '')
     
@@ -477,6 +497,12 @@ def lambda_handler(event, context):
         ('PUT', '/api/admin/shorts/scene'): update_scene,
         ('POST', '/api/admin/shorts/generate-scene-photos'): generate_scene_photos,
         ('GET', '/api/admin/shorts/scene-photos/status'): get_scene_photos_status,
+        # Scene video generation
+        ('POST', '/api/admin/shorts/generate-scene-videos'): start_scene_videos_generation,
+        ('GET', '/api/admin/shorts/scene-videos/status'): get_scene_videos_status,
+        ('POST', '/api/admin/shorts/select-scene-video'): select_scene_video,
+        ('POST', '/api/admin/shorts/concatenate'): concatenate_final_video,
+        ('GET', '/api/admin/shorts/concat/status'): get_concat_status,
     }
     
     # Find matching route
