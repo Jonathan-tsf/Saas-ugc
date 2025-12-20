@@ -65,7 +65,7 @@ def get_ambassadors_for_shorts(event):
                 'name': amb.get('name', 'Unknown'),
                 'description': amb.get('description', ''),
                 'gender': amb.get('gender', 'female'),
-                'profile_photo': amb.get('profile_photo', ''),
+                'photo_profile': amb.get('photo_profile', ''),
                 'outfits_count': outfits_count,
                 'has_showcase_videos': len(amb.get('showcase_videos', [])) > 0,
                 'product_ids': amb.get('product_ids', [])  # Include product IDs
