@@ -379,13 +379,26 @@ Closer (2-4s): Conclusion naturelle
    - Imperfections OK
    - Pas de marketing
 
-📝 RÈGLES prompt_image:
+📝 RÈGLES prompt_image (TRÈS IMPORTANT):
 1. EN ANGLAIS uniquement
 2. Commence par "Put this person"
 3. Max 25 mots
 4. JAMAIS décrire physiquement la personne
 5. JAMAIS de texte dans l'image
 6. Actions NATURELLES, pas des poses
+
+⛔ MOTS INTERDITS dans prompt_image (trop cinématique, pas TikTok):
+- "dramatic", "cinematic", "epic", "cathedral", "majestic"
+- "moody atmosphere", "powerful atmosphere"
+- "professional lighting", "studio lighting"
+- "low angle", "hero shot"
+- Tout ce qui fait "film hollywoodien"
+
+✅ STYLE VOULU dans prompt_image:
+- "natural light", "window light", "cozy", "casual"
+- Lieux réels: "apartment", "home gym", "bedroom", "kitchen"
+- Ambiance: "relaxed", "chill", "everyday", "authentic"
+- Qualité: "smartphone photo", "casual vibe"
 
 FORMAT: JSON uniquement."""
 
@@ -996,8 +1009,11 @@ def start_scene_photos_generation(event):
         scene_prompt = scene.get('prompt_image', 'Put this person in an aesthetic room, casual pose, relaxed vibe.')
         ambassador_id = script.get('ambassador_id', 'unknown')
         
-        # Get product info if available
-        product = script.get('product', {})
+        # Get product info ONLY if product_visible is true for this scene
+        product_visible = scene.get('product_visible', False)
+        product = script.get('product', {}) if product_visible else {}
+        
+        print(f"Scene {scene_index} - product_visible: {product_visible}, including product: {bool(product)}")
         
         # Create job in DynamoDB
         job_id = str(uuid.uuid4())
@@ -1010,7 +1026,8 @@ def start_scene_photos_generation(event):
             'ambassador_id': ambassador_id,
             'outfit_image_url': outfit_image_url,
             'scene_prompt': scene_prompt,
-            'product': product,  # Pass product info for natural integration
+            'product_visible': product_visible,
+            'product': product,  # Only passed if product_visible is true
             'photos': [],
             'progress': 0,
             'total': 2,  # Always generate 2 photos
@@ -1087,45 +1104,59 @@ def generate_scene_photos_async(job_id: str, outfit_image_url: str):
         # Build reference images list
         reference_images = [outfit_base64]
         
-        # Download product image if available
+        # Download product image ONLY if product_visible is true
+        product_visible = job.get('product_visible', False)
         product_info = job.get('product', {})
-        product_image_url = product_info.get('image_url', '') if product_info else ''
-        if product_image_url:
+        product_image_url = product_info.get('image_url', '') if product_info and product_visible else ''
+        
+        if product_image_url and product_visible:
             try:
-                print(f"Downloading product image from URL: {product_image_url}")
+                print(f"Scene has product_visible=True, downloading product image: {product_image_url}")
                 product_base64 = download_image_as_base64(product_image_url)
                 reference_images.append(product_base64)
                 print("Product image added as reference")
             except Exception as e:
                 print(f"Failed to download product image (continuing without it): {e}")
+        else:
+            print(f"Scene has product_visible={product_visible}, NOT including product image")
         
         script_id = job.get('script_id')
         scene_index = int(job.get('scene_index', 0))
         ambassador_id = job.get('ambassador_id', 'unknown')
         scene_prompt = job.get('scene_prompt', 'Put this person in an aesthetic room, casual pose, relaxed vibe.')
         
-        # Build product placement text if product available
+        # Build product placement text ONLY if product_visible is true
         product_text = ""
-        if product_info and product_info.get('name'):
+        if product_visible and product_info and product_info.get('name'):
             product_name = product_info.get('name', '')
             product_brand = product_info.get('brand', '')
             if product_brand:
                 product_text = f" The {product_brand} {product_name} (shown in second reference image) should be visible in the scene - placed naturally nearby (on floor, bench, or table) NOT in person's hands."
             else:
                 product_text = f" The {product_name} (shown in second reference image) should be visible in the scene - placed naturally nearby (on floor, bench, or table) NOT in person's hands."
+            print(f"Including product in prompt: {product_name}")
+        else:
+            print("NOT including product in prompt (product_visible is False)")
         
         # Build the full prompt with ALL constraints
-        constraints = """CRITICAL RULES:
+        # IMPORTANT: Authenticity-focused constraints for TikTok content (NOT cinematic)
+        constraints = """CRITICAL RULES FOR AUTHENTIC TIKTOK CONTENT:
 - Keep EXACT same face, body shape and clothes from FIRST reference image
 - Person's hands must be EMPTY (no objects, no phone, no weights, no bottle, no equipment)
 - ABSOLUTELY NO TEXT anywhere in image (no signs, no logos, no brand names, no gym equipment labels, no numbers on weights, no writing of any kind)
 - ONLY ONE PERSON in the image (the reference person) - NO OTHER PEOPLE anywhere, even in background
-- Gym/location must be EMPTY except for the person
+- Location should feel LIVED-IN and REAL, not a movie set
 - NO TikTok overlays, UI elements, or social media graphics
 - NO watermarks or stamps
-- Clean professional gym/fitness aesthetic
-- Natural lighting, 9:16 vertical format
-- Photorealistic quality"""
+
+STYLE - AUTHENTIC TIKTOK (NOT CINEMATIC):
+- Natural smartphone-quality lighting (window light, room lights)
+- Slightly imperfect composition like a real photo
+- NO dramatic lighting, NO professional studio lighting
+- NO cinematic color grading or film looks
+- Feels like iPhone photo, not a movie still
+- Real locations (home gym, bedroom, kitchen, apartment)
+- 9:16 vertical format for TikTok"""
         
         if scene_prompt.lower().startswith('put this person'):
             full_prompt = f"{scene_prompt}{product_text}\n\n{constraints}"
