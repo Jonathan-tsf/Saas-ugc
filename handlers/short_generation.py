@@ -296,10 +296,25 @@ def generate_short_script(event):
     if not outfits:
         return response(400, {'error': 'Ambassador has no outfit photos. Generate outfit photos first in the Outfits tab.'})
     
-    # Format outfits for AI prompt
-    outfits_text = ""
+    # Format outfits for AI prompt - categorize by type
+    outfits_text = "⚠️ CHOISIS LA TENUE QUI CORRESPOND À L'ACTIVITÉ DE LA SCÈNE:\n"
     for o in outfits:
-        outfits_text += f"- ID: {o['id']} | Description: {o['prompt'] or o['scene_type'] or 'Tenue casual'}\n"
+        outfit_desc = o['prompt'] or o['scene_type'] or 'Tenue casual'
+        # Add category hint based on description
+        category_hint = ""
+        desc_lower = outfit_desc.lower()
+        if any(word in desc_lower for word in ['sport', 'gym', 'fitness', 'training', 'workout', 'legging', 'brassière', 'running']):
+            category_hint = "[SPORT/FITNESS]"
+        elif any(word in desc_lower for word in ['casual', 'jean', 'street', 'quotidien', 'ville']):
+            category_hint = "[CASUAL/QUOTIDIEN]"
+        elif any(word in desc_lower for word in ['cozy', 'pyjama', 'nuit', 'loungewear', 'détente', 'maison']):
+            category_hint = "[MAISON/DÉTENTE]"
+        elif any(word in desc_lower for word in ['chic', 'élégant', 'soirée', 'dress']):
+            category_hint = "[CHIC/HABILLÉ]"
+        else:
+            category_hint = "[POLYVALENT]"
+        
+        outfits_text += f"- ID: {o['id']} {category_hint} | {outfit_desc}\n"
     
     # Build the prompt for Claude - VIRAL TIKTOK FORMAT
     system_prompt = """Tu es un expert en création de contenus TikTok viraux. Tu crées des scripts VARIÉS et CRÉATIFS.
@@ -379,6 +394,15 @@ Closer (2-4s): Conclusion naturelle
    - Imperfections OK
    - Pas de marketing
 
+5. **COHÉRENCE TENUE ↔ ACTIVITÉ** (TRÈS IMPORTANT):
+   - La tenue DOIT correspondre LOGIQUEMENT à l'activité
+   - Sport/stretching/gym/training → tenue sport/fitness
+   - Cuisine/maison/détente → tenue casual/loungewear
+   - Lit/réveil/nuit → pyjama ou tenue cozy
+   - NE JAMAIS mettre une tenue casual pour faire du sport
+   - NE JAMAIS mettre une tenue sport pour lire au lit
+   - Regarde la DESCRIPTION de chaque tenue et choisis celle qui FAIT SENS
+
 📝 RÈGLES prompt_image (TRÈS IMPORTANT):
 1. EN ANGLAIS uniquement
 2. Commence par "Put this person"
@@ -429,9 +453,15 @@ FORMAT: JSON uniquement."""
 👤 {ambassador_name} ({ambassador_gender})
 📝 {ambassador_description if ambassador_description else "Lifestyle creator"}
 
-👕 {len(outfits)} tenues disponibles
+👕 TENUES DISPONIBLES (choisis celle qui correspond à l'activité!):
 {outfits_text}
 {concept_text}{product_text}
+
+⚠️ RÈGLE CRUCIALE - COHÉRENCE TENUE/ACTIVITÉ:
+- Scène de sport/gym/stretching → utilise une tenue [SPORT/FITNESS]
+- Scène maison/cuisine/détente → utilise une tenue [CASUAL] ou [MAISON/DÉTENTE]
+- Si tu décris du sport mais tu mets une tenue casual = ERREUR
+- RÉFLÉCHIS: "Est-ce que cette personne porterait VRAIMENT cette tenue pour cette activité?"
 
 🎲 CHOISIS UN FORMAT AU HASARD parmi A-H (pas toujours le même!)
 Sois CRÉATIF et VARIÉ.
