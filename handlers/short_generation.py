@@ -302,77 +302,94 @@ def generate_short_script(event):
         outfits_text += f"- ID: {o['id']} | Description: {o['prompt'] or o['scene_type'] or 'Tenue casual'}\n"
     
     # Build the prompt for Claude - VIRAL TIKTOK FORMAT
-    system_prompt = """Tu es un expert en création de contenus TikTok viraux. Tu crées des scripts au format qui CARTONNE sur TikTok.
+    system_prompt = """Tu es un expert en création de contenus TikTok viraux. Tu crées des scripts VARIÉS et CRÉATIFS.
 
-🔥 FORMATS VIRAUX TIKTOK (choisis-en un adapté):
+🎲 IMPORTANT: Varie les formats! Ne fais pas toujours le même type de contenu.
 
-1. **"Top X things that..."** / **"X choses qui ont changé..."**
-   - Hook face caméra accrocheur
-   - B-roll de chaque tip avec TEXTE OVERLAY
-   - Produit intégré dans UN des tips naturellement
+🔥 FORMATS POSSIBLES (choisis-en UN au hasard, pas toujours le même):
 
-2. **"POV: tu découvres que..."** 
-   - Scène immersive point de vue
-   - Révélation progressive
-   - Produit dans le contexte
+**FORMAT A - "Day in my life" / "Journée type"**
+- Moments authentiques d'une journée
+- Esthétique, lifestyle, pas de tips
+- Ambiance chill, musique lo-fi
+- Produit visible naturellement dans la routine
 
-3. **"What I eat/use in a day"**
-   - Routine quotidienne
-   - Produit comme élément naturel de la routine
+**FORMAT B - "Get ready with me" (GRWM)**
+- Préparation avant une activité
+- Montage rapide, énergique
+- Produit = partie de la préparation
 
-4. **"The difference between X and Y"**
-   - Comparaison visuelle
-   - Tips éducatifs
+**FORMAT C - "POV: quand tu..." / "That feeling when..."**
+- Scène immersive relatable
+- Humour ou émotion
+- Pas de face caméra, juste l'ambiance
+- Produit dans le décor
 
-5. **"Things I wish I knew before..."**
-   - Conseils de "veteran"
-   - Valeur ajoutée pour le viewer
+**FORMAT D - "Silent vlog" / "No talking just vibes"**
+- AUCUN texte overlay sauf titre
+- Juste des images esthétiques
+- Musique = l'émotion principale
+- Ambiance > message
 
-📝 STRUCTURE D'UN TIKTOK VIRAL:
+**FORMAT E - "What changed my [X]"**
+- 2-3 conseils/changements
+- B-roll illustratif avec texte
+- UN conseil mentionne le produit
 
-**SCÈNE 1 - HOOK (2-4s):**
-- Personne face caméra ou action accrocheuse
-- Titre/question qui donne envie de regarder
-- Texte overlay: le titre du TikTok
-- Ex: "3 erreurs qui ruinent tes gains" / "Ce que personne te dit sur..."
+**FORMAT F - "Before vs After" / "Transformation"**
+- Contraste visuel
+- Progression, amélioration
+- Produit = facteur du changement
 
-**SCÈNES 2-4 - B-ROLL TIPS (3-5s chaque):**
-- Actions/démonstrations visuelles
-- CHAQUE scène a un TEXTE OVERLAY avec le tip/conseil
-- Le texte overlay = la valeur ajoutée, l'image = l'illustration
-- Le produit apparaît dans UNE SEULE de ces scènes, intégré au tip
+**FORMAT G - "Things I can't live without"**
+- Objets/habitudes essentielles
+- Produit = UN des éléments
+- Lifestyle authentique
 
-**SCÈNE FINALE - CLOSER (2-4s):**
-- Retour face caméra ou action conclusive
-- Texte overlay: conclusion/CTA subtil
+**FORMAT H - "My honest review" / "POV: 1 mois avec..."**
+- Utilisation réelle
+- Moments variés avec le produit
+- Authentique, pas promotionnel
 
-⚠️ RÈGLES CRITIQUES:
+📋 STRUCTURE FLEXIBLE:
 
-1. **TEXTE OVERLAY OBLIGATOIRE** sur chaque scène:
-   - Court (5-10 mots max)
-   - C'est le MESSAGE de la scène
-   - Format: conseil, fait, question
+Hook (2-4s): Accroche visuelle OU face caméra OU action
+Corps (10-20s): 2-5 scènes selon le format
+Closer (2-4s): Conclusion naturelle
 
-2. **PRODUIT = 1 SEULE SCÈNE**:
-   - Intégré comme EXEMPLE d'un tip
-   - Pas "voici le produit" mais "ex: les protéines post-workout"
-   - Le tip a de la valeur MÊME sans le produit
+⚠️ RÈGLES:
 
-3. **PAS de pub déguisée**:
-   - Le contenu doit être utile/divertissant SANS le produit
-   - Le produit est un EXEMPLE, pas le sujet
+1. **TEXT OVERLAY** = optionnel selon le format
+   - Silent vlogs: PAS de texte (juste titre)
+   - Formats éducatifs: texte sur chaque scène
+   - GRWM/Day in life: texte minimal
+
+2. **PRODUIT** = 1-2 scènes MAX
+   - Intégré naturellement à l'action
+   - Jamais le focus principal
+   - Peut être juste VISIBLE (pas utilisé)
+
+3. **VARIÉTÉ**:
+   - Alterne les angles caméra
+   - Mix face caméra et B-roll
+   - Pas toujours la même structure
+
+4. **AUTHENTICITÉ**:
+   - Moments réels, pas posés
+   - Imperfections OK
+   - Pas de marketing
 
 📝 RÈGLES prompt_image:
 1. EN ANGLAIS uniquement
-2. Commence TOUJOURS par "Put this person"
+2. Commence par "Put this person"
 3. Max 25 mots
-4. JAMAIS décrire la personne physiquement
-5. Pour les hooks face caméra: "looking at camera with [emotion], [context]"
-6. JAMAIS de texte dans l'image (le texte overlay sera ajouté en post-prod)
+4. JAMAIS décrire physiquement la personne
+5. JAMAIS de texte dans l'image
+6. Actions NATURELLES, pas des poses
 
 FORMAT: JSON uniquement."""
 
-    concept_text = f"\n\n💡 CONCEPT SUGGÉRÉ: {concept}\n(Adapte-le en format viral TikTok!)" if concept else ""
+    concept_text = f"\n\n💡 CONCEPT SUGGÉRÉ: {concept}\n(Interprète-le librement, sois créatif!)" if concept else ""
     
     # Build product section if product provided
     product_text = ""
@@ -387,88 +404,52 @@ FORMAT: JSON uniquement."""
 - Produit: {product_name}
 - Marque: {product_brand}
 - Catégorie: {product_category}
-- Description: {product_description}
 
-⚡ INTÉGRATION INTELLIGENTE:
-- Le produit apparaît dans UNE SEULE scène (pas plus!)
-- Il illustre UN des tips/conseils du contenu
-- Exemple pour une whey: le tip "Atteins ton quota de protéines" → scène avec shaker/pot de whey
-- Le tip doit avoir de la VALEUR même si on enlève la marque
-- C'est un EXEMPLE concret, pas une mise en avant"""
+⚡ INTÉGRATION:
+- Visible dans 1-2 scènes MAX
+- Intégré naturellement à l'action (pas posé, pas montré)
+- La personne l'utilise OU il est juste dans le décor
+- PAS le sujet principal du contenu"""
 
-    user_prompt = f"""Crée un TikTok VIRAL pour:
+    user_prompt = f"""Crée un TikTok pour:
 
-👤 AMBASSADEUR: {ambassador_name} ({ambassador_gender})
-📝 PROFIL: {ambassador_description if ambassador_description else "Créateur de contenu lifestyle"}
+👤 {ambassador_name} ({ambassador_gender})
+📝 {ambassador_description if ambassador_description else "Lifestyle creator"}
 
-👕 TENUES: {len(outfits)} disponibles
+👕 {len(outfits)} tenues disponibles
 {outfits_text}
 {concept_text}{product_text}
 
-🎬 CRÉE UN SCRIPT VIRAL:
-1. Choisis un FORMAT viral adapté (Top X, POV, What I use, etc.)
-2. Écris un HOOK accrocheur (scène 1)
-3. Crée 2-4 scènes B-roll avec chacune un TEXTE OVERLAY (tip/conseil)
-4. {"Intègre " + product.get('name', '') + " dans UNE SEULE scène comme exemple d'un tip" if product else ""}
-5. Termine par une scène de conclusion
+🎲 CHOISIS UN FORMAT AU HASARD parmi A-H (pas toujours le même!)
+Sois CRÉATIF et VARIÉ.
 
 Génère ce JSON:
 {{
-  "title": "Titre viral (ex: '3 things that changed my physique')",
-  "concept": "Format choisi et angle",
-  "total_duration": <15-30 secondes>,
+  "title": "Titre accrocheur",
+  "concept": "Format choisi (A/B/C/etc) + description",
+  "total_duration": <15-30s>,
   "hashtags": ["#...", ...],
   "target_platform": "tiktok",
-  "mood": "educational/motivational/relatable/aesthetic",
-  "music_suggestion": "Type de musique trending",
+  "mood": "chill/energetic/aesthetic/funny/motivational",
+  "music_suggestion": "Style de musique",
   "scenes": [
     {{
       "order": 1,
-      "scene_type": "hook/tip/product-tip/closer",
-      "description": "Description de la scène",
-      "text_overlay": "TEXTE AFFICHÉ À L'ÉCRAN (5-10 mots, c'est le message clé)",
-      "duration": <2-5 secondes>,
-      "prompt_image": "Put this person [action] in [lieu]. [ambiance]",
-      "prompt_video": "Description du mouvement/action pour la vidéo",
-      "outfit_id": "<ID tenue>",
-      "camera_angle": "front-facing/pov/medium/wide/close-up",
-      "transition_to_next": "cut/swipe",
+      "scene_type": "hook/scene/product/closer",
+      "description": "Ce qui se passe",
+      "text_overlay": "Texte à l'écran (optionnel selon format, null si silent vlog)",
+      "duration": 3,
+      "prompt_image": "Put this person [action] in [lieu]. [détails visuels]",
+      "prompt_video": "Description du mouvement",
+      "outfit_id": "ID de la tenue",
+      "camera_angle": "pov/medium/wide/close-up",
+      "transition_to_next": "cut/swipe/none",
       "product_visible": false
-    }},
-    {{
-      "order": 2,
-      "scene_type": "tip",
-      "description": "B-roll illustrant le tip 1",
-      "text_overlay": "1. Le tip affiché (ex: 'Progressive overload is key')",
-      "duration": 4,
-      "prompt_image": "Put this person [action qui illustre le tip]",
-      "prompt_video": "...",
-      "outfit_id": "...",
-      "camera_angle": "...",
-      "transition_to_next": "cut",
-      "product_visible": false
-    }},
-    {{
-      "order": 3,
-      "scene_type": "product-tip",
-      "description": "Scène où le produit illustre un tip",
-      "text_overlay": "2. Le tip (ex: 'Hit your protein goal daily')",
-      "duration": 4,
-      "prompt_image": "Put this person [action avec produit visible naturellement]",
-      "prompt_video": "...",
-      "outfit_id": "...",
-      "camera_angle": "...",
-      "transition_to_next": "cut",
-      "product_visible": true
     }}
   ]
 }}
 
-🚫 ERREURS À ÉVITER:
-- Produit sur plusieurs scènes (1 SEULE!)
-- Scène sans text_overlay (CHAQUE scène en a un)
-- Tips génériques sans valeur
-- Contenu qui ressemble à une pub"""
+Rappel: Varie les formats, sois créatif!"""
 
     try:
         request_body = {
