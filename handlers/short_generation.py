@@ -2383,11 +2383,18 @@ def concatenate_videos_async(job_id: str):
                     print(f"[{job_id}] ffmpeg error: {result.stderr}")
                     raise Exception(f"ffmpeg failed: {result.stderr[:200]}")
                 
-        except FileNotFoundError:
-            # ffmpeg not available - fall back to first processed video
-            print(f"[{job_id}] ffmpeg not available, using first video as placeholder")
-            import shutil
-            shutil.copy(processed_files[0], output_file)
+        except FileNotFoundError as fnf_error:
+            # ffmpeg not available - this is a CRITICAL issue
+            error_msg = (
+                "ffmpeg binary not found at /opt/bin/ffmpeg. "
+                "You need to add an ffmpeg Lambda Layer. "
+                "Use ARN: arn:aws:lambda:us-east-1:123456789012:layer:ffmpeg:1 (replace with actual ARN)"
+            )
+            print(f"[{job_id}] CRITICAL: {error_msg}")
+            print(f"[{job_id}] FileNotFoundError: {fnf_error}")
+            
+            # Instead of silently failing with first video, raise the error
+            raise Exception(error_msg)
         
         # Upload to S3
         jobs_table.update_item(
