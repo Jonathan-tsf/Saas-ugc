@@ -299,73 +299,56 @@ def generate_short_script(event):
     # Format outfits for AI prompt
     outfits_text = ""
     for o in outfits:
-        outfits_text += f"- ID: {o['id']} | Description: {o['prompt'] or o['scene_type'] or 'Tenue sport'}\n"
+        outfits_text += f"- ID: {o['id']} | Description: {o['prompt'] or o['scene_type'] or 'Tenue casual'}\n"
     
-    # Build the prompt for Claude
-    system_prompt = """Tu es une VRAIE créatrice fitness sur TikTok. Tu captes des moments RÉELS de ta vie.
+    # Build the prompt for Claude - ADAPTATIF selon l'ambassadeur
+    system_prompt = """Tu es un créateur de contenu UGC professionnel. Tu crées des TikToks AUTHENTIQUES adaptés au profil de chaque ambassadeur.
 
-🚫 CE QUE TU NE FAIS JAMAIS:
+⚠️ RÈGLE FONDAMENTALE: Adapte le contenu à la DESCRIPTION de l'ambassadeur!
+- Si c'est une influenceuse fitness → contenu gym/workout
+- Si c'est une étudiante → contenu lifestyle/étude/routine
+- Si c'est une maman → contenu famille/organisation
+- Si c'est un gamer → contenu gaming/setup
+- ANALYSE LA DESCRIPTION pour comprendre son univers!
+
+🚫 CE QU'ON NE FAIT JAMAIS:
 - "Secret reveal" / "Tu veux savoir mon secret?"
 - Clins d'œil à la caméra
-- "Chut" avec le doigt
-- "Maintenant tu sais"
 - Regards complices forcés
-- Storytelling mystérieux
 - Sourires forcés à la caméra
-- Call-to-action ("follow for more")
-- Tout ce qui fait PUB ou MARKETING
+- Call-to-action marketing ("follow for more", "link in bio")
+- Tout ce qui sent la PUB traditionnelle
 
-✅ CE QUE TU FAIS:
-- Tu captures des VRAIS moments
-- Tu t'entraînes NORMALEMENT, pas pour la caméra
-- Tu vis ta vie, la caméra est juste là
-- Tu transpires, tu souffles, tu te concentres
-- C'est BRUT, RÉEL, PAS SCRIPTÉ
+✅ CE QU'EST LE VRAI UGC:
+- Moments AUTHENTIQUES de la vie quotidienne
+- La personne utilise le produit NATURELLEMENT
+- On VOIT le produit clairement mais sans le "présenter"
+- C'est BRUT, RÉEL, comme une story Instagram spontanée
+- Le produit fait PARTIE de la routine, pas l'inverse
 
-🎬 TYPES DE CONTENUS AUTHENTIQUES:
-1. "Get ready with me" (GRWM) - préparation naturelle avant la salle
-2. "A day in my life" - extraits d'une journée normale
-3. "Workout check" - moments random de l'entraînement
-4. "POV: tu..." - point de vue immersif
-5. "What I eat in a day" - repas/nutrition naturels
-6. "Before/after" - transformation workout
-7. "Silent vlog" - pas de parole, juste l'ambiance
-8. "This or that" - choix rapides
-9. "Fit check" - montrer rapidement sa tenue
-10. "No talking, just vibes" - ambiance pure
-
-💡 VRAIS MOMENTS FITNESS:
-- Souffler entre les séries (pas sourire)
-- Ajuster ses écouteurs
-- Boire de l'eau (sans regarder la caméra)
-- Se regarder dans le miroir (concentration, pas pose)
-- Marcher vers une machine
-- Essuyer sa sueur
-- Attendre qu'une machine se libère
-- Checker son téléphone pour la playlist
-- Faire une grimace pendant l'effort
-- Respirer fort après une série intense
-
-📱 ESTHÉTIQUE:
-- Gym lighting naturel
-- Angles POV ou selfie
-- Parfois légèrement flou/mouvement
-- Caméra posée quelque part ou en main
-- PAS de setup studio parfait
+🎬 TYPES DE CONTENUS (à adapter selon le profil):
+- "Get ready with me" (GRWM) - préparation avant une activité
+- "A day in my life" - extraits d'une journée type
+- "POV: tu..." - point de vue immersif
+- "What I eat/drink in a day" - routine nutrition
+- "Morning/Night routine" - rituels quotidiens
+- "Silent vlog" - pas de parole, juste l'ambiance
+- "This or that" - choix du quotidien
+- "Aesthetic vlog" - moments esthétiques
 
 📝 RÈGLES prompt_image:
-1. EN ANGLAIS
+1. EN ANGLAIS uniquement
 2. Commence TOUJOURS par "Put this person"
-3. Max 20 mots
+3. Max 25 mots
 4. JAMAIS décrire la personne physiquement
 5. JAMAIS "smiling at camera", "winking", "making gesture"
-6. Toujours une action NATURELLE, pas une pose
+6. Action NATURELLE dans un contexte réaliste
 
 FORMAT: JSON uniquement."""
 
-    concept_text = f"\n\n💡 CONCEPT SUGGÉRÉ: {concept}\n(Tu peux t'en inspirer ou proposer mieux!)" if concept else ""
+    concept_text = f"\n\n💡 CONCEPT SUGGÉRÉ: {concept}\n(Tu peux t'en inspirer ou proposer mieux adapté à l'ambassadeur!)" if concept else ""
     
-    # Build product section if product provided
+    # Build product section if product provided - IMPORTANT: visible mais naturel
     product_text = ""
     if product:
         product_name = product.get('name', '')
@@ -374,71 +357,79 @@ FORMAT: JSON uniquement."""
         product_description = product.get('description', '')
         product_text = f"""
 
-🛍️ PRODUIT (ULTRA DISCRET):
+🛍️ PRODUIT À INTÉGRER (OBLIGATOIRE):
 - Produit: {product_name}
 - Marque: {product_brand}
+- Catégorie: {product_category}
+- Description: {product_description}
 
-⚡ INTÉGRATION NATURELLE SEULEMENT:
-- Le produit est juste LÀ, visible naturellement
-- PAS de mise en avant, PAS de focus dessus
-- Comme dans la vraie vie: le shaker est sur le banc, c'est tout
-- La personne ne "présente" jamais le produit
-- Elle l'utilise comme n'importe quel objet de sa routine
-- Dans 1 scène MAX, en arrière-plan ou utilisation naturelle
-- JAMAIS de "reveal" du produit"""
+⚡ INTÉGRATION UGC AUTHENTIQUE (PAS MARKETING, PAS INVISIBLE):
+Le produit doit apparaître dans AU MOINS 2-3 scènes de manière NATURELLE mais VISIBLE:
+
+✅ BONNES INTÉGRATIONS:
+- La personne UTILISE activement le produit (boit le shaker, applique la crème, etc.)
+- Le produit est posé à côté d'elle pendant une activité
+- Elle prépare/verse/ouvre le produit
+- Le produit est dans son sac qu'elle ouvre
+- Elle le tient naturellement en faisant autre chose
+
+❌ MAUVAISES INTÉGRATIONS:
+- Produit caché ou à peine visible
+- Produit présenté face caméra comme une pub
+- "Reveal" du produit
+- Discours sur les bienfaits du produit
+
+🎯 L'OBJECTIF: On doit voir le produit {product_name} clairement dans le contenu, mais la personne ne "vend" pas - elle l'utilise juste dans sa vie."""
 
     user_prompt = f"""Crée un TikTok AUTHENTIQUE pour:
 
-👤 {ambassador_name} ({ambassador_gender})
-{ambassador_description}
+👤 AMBASSADEUR: {ambassador_name} ({ambassador_gender})
+📝 DESCRIPTION (IMPORTANT - adapte le contenu à ce profil!):
+{ambassador_description if ambassador_description else "Pas de description - crée un contenu lifestyle général"}
 
-👕 TENUES: {len(outfits)} disponibles
+👕 TENUES DISPONIBLES: {len(outfits)}
 {outfits_text}
 {concept_text}{product_text}
 
-🎬 CRÉE UN CONTENU RÉEL:
-- Pas de script marketing
-- Des vrais moments d'entraînement
-- L'ambassadrice vit sa vie, la caméra capte
-- Transpiration, effort, concentration
-- PAS de sourires forcés à la caméra
-- PAS de "reveal" ou "secret"
+🎬 INSTRUCTIONS:
+1. ANALYSE la description de l'ambassadeur pour comprendre son univers
+2. Crée un contenu adapté à SA vie (pas forcément fitness!)
+3. {"Intègre le produit " + product.get('name', '') + " de manière naturelle mais VISIBLE dans 2-3 scènes" if product else "Crée un contenu lifestyle authentique"}
+4. Moments RÉELS, pas de poses ou de marketing
+5. 4-6 scènes maximum
 
 Génère ce JSON:
 {{
-  "title": "Titre court et accrocheur (style TikTok)",
-  "concept": "Le vibe du contenu",
+  "title": "Titre court et accrocheur (style TikTok viral)",
+  "concept": "Le vibe du contenu adapté à l'ambassadeur",
   "total_duration": <15-30 secondes max>,
   "hashtags": ["#...", ...],
   "target_platform": "tiktok",
-  "mood": "raw/intense/chill/aesthetic/focused",
-  "music_suggestion": "Type de musique (trending sound, phonk, lo-fi...)",
+  "mood": "raw/intense/chill/aesthetic/focused/cozy",
+  "music_suggestion": "Type de musique adapté au contenu",
   "scenes": [
     {{
       "order": 1,
-      "scene_type": "workout/transition/lifestyle/fit-check",
-      "description": "Moment capturé (NATUREL)",
+      "scene_type": "lifestyle/transition/product-use/activity",
+      "description": "Description de la scène (en français)",
       "duration": <2-5 secondes>,
-      "prompt_image": "Put this person [action naturelle] in [lieu]. [ambiance]",
-      "prompt_video": "La personne [action]. Caméra fixe.",
+      "prompt_image": "Put this person [action naturelle] in [lieu]. [ambiance/détails]",
+      "prompt_video": "La personne [action détaillée]. [mouvement caméra].",
       "outfit_id": "<ID tenue>",
-      "camera_angle": "pov/medium/wide",
-      "transition_to_next": "cut/none"
+      "camera_angle": "pov/medium/wide/close-up",
+      "transition_to_next": "cut/none",
+      "product_visible": true/false
     }}
   ]
 }}
 
-🚫 INTERDITS ABSOLUS:
-- "smiling at camera" / "winking" / "making gesture"  
-- "secret" / "reveal" / "mystery"
-- "confident smile" / "knowing look"
-- Tout regard/geste vers la caméra
-- Plus de 6 scènes"""
+🚫 RAPPEL: PAS de contenu fitness générique si l'ambassadeur n'est pas fitness! Adapte à sa description!"""
 
     try:
         request_body = {
             "anthropic_version": "bedrock-2023-05-31",
             "max_tokens": 4000,
+            "temperature": 0.9,  # High temperature for creative variety
             "system": system_prompt,
             "messages": [
                 {
@@ -979,6 +970,9 @@ def start_scene_photos_generation(event):
         scene_prompt = scene.get('prompt_image', 'Put this person in an aesthetic room, casual pose, relaxed vibe.')
         ambassador_id = script.get('ambassador_id', 'unknown')
         
+        # Get product info if available
+        product = script.get('product', {})
+        
         # Create job in DynamoDB
         job_id = str(uuid.uuid4())
         job = {
@@ -990,6 +984,7 @@ def start_scene_photos_generation(event):
             'ambassador_id': ambassador_id,
             'outfit_image_url': outfit_image_url,
             'scene_prompt': scene_prompt,
+            'product': product,  # Pass product info for natural integration
             'photos': [],
             'progress': 0,
             'total': 2,  # Always generate 2 photos
@@ -1063,18 +1058,56 @@ def generate_scene_photos_async(job_id: str, outfit_image_url: str):
         print(f"Downloading outfit reference from URL: {outfit_image_url}")
         outfit_base64 = download_image_as_base64(outfit_image_url)
         
+        # Build reference images list
+        reference_images = [outfit_base64]
+        
+        # Download product image if available
+        product_info = job.get('product', {})
+        product_image_url = product_info.get('image_url', '') if product_info else ''
+        if product_image_url:
+            try:
+                print(f"Downloading product image from URL: {product_image_url}")
+                product_base64 = download_image_as_base64(product_image_url)
+                reference_images.append(product_base64)
+                print("Product image added as reference")
+            except Exception as e:
+                print(f"Failed to download product image (continuing without it): {e}")
+        
         script_id = job.get('script_id')
         scene_index = int(job.get('scene_index', 0))
         ambassador_id = job.get('ambassador_id', 'unknown')
         scene_prompt = job.get('scene_prompt', 'Put this person in an aesthetic room, casual pose, relaxed vibe.')
         
-        # Build the full prompt
+        # Build product placement text if product available
+        product_text = ""
+        if product_info and product_info.get('name'):
+            product_name = product_info.get('name', '')
+            product_brand = product_info.get('brand', '')
+            if product_brand:
+                product_text = f" The {product_brand} {product_name} (shown in second reference image) should be visible in the scene - placed naturally nearby (on floor, bench, or table) NOT in person's hands."
+            else:
+                product_text = f" The {product_name} (shown in second reference image) should be visible in the scene - placed naturally nearby (on floor, bench, or table) NOT in person's hands."
+        
+        # Build the full prompt with ALL constraints
+        constraints = """CRITICAL RULES:
+- Keep EXACT same face, body shape and clothes from FIRST reference image
+- Person's hands must be EMPTY (no objects, no phone, no weights, no bottle, no equipment)
+- ABSOLUTELY NO TEXT anywhere in image (no signs, no logos, no brand names, no gym equipment labels, no numbers on weights, no writing of any kind)
+- ONLY ONE PERSON in the image (the reference person) - NO OTHER PEOPLE anywhere, even in background
+- Gym/location must be EMPTY except for the person
+- NO TikTok overlays, UI elements, or social media graphics
+- NO watermarks or stamps
+- Clean professional gym/fitness aesthetic
+- Natural lighting, 9:16 vertical format
+- Photorealistic quality"""
+        
         if scene_prompt.lower().startswith('put this person'):
-            full_prompt = f"{scene_prompt} Keep exact same face, body and clothes. TikTok aesthetic, natural lighting, 9:16 vertical."
+            full_prompt = f"{scene_prompt}{product_text}\n\n{constraints}"
         else:
-            full_prompt = f"Put this person {scene_prompt}. Keep exact same face, body and clothes. TikTok aesthetic, natural lighting, 9:16 vertical."
+            full_prompt = f"Put this person {scene_prompt}{product_text}\n\n{constraints}"
         
         print(f"Generating 2 photos with prompt: {full_prompt[:100]}...")
+        print(f"Using {len(reference_images)} reference image(s)")
         
         # Generate 2 photos
         scene_photos = []
@@ -1083,10 +1116,10 @@ def generate_scene_photos_async(job_id: str, outfit_image_url: str):
             try:
                 print(f"Generating photo {photo_index + 1}/2...")
                 
-                # Call Gemini to generate image with reference
+                # Call Gemini to generate image with reference(s)
                 image_base64 = generate_image(
                     prompt=full_prompt,
-                    reference_images=[outfit_base64],
+                    reference_images=reference_images,
                     image_size="2K"
                 )
                 
@@ -1174,13 +1207,6 @@ def generate_scene_photos_async(job_id: str, outfit_image_url: str):
                 ':updated': datetime.now().isoformat()
             }
         )
-        
-        # Cleanup temp S3 file
-        try:
-            s3.delete_object(Bucket=S3_BUCKET, Key=outfit_s3_key)
-            print(f"Cleaned up temp file: {outfit_s3_key}")
-        except:
-            pass
         
         print(f"Job {job_id} {final_status} with {len(scene_photos)} photos")
         
