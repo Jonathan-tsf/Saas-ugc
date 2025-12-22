@@ -2339,49 +2339,83 @@ def concatenate_videos_async(job_id: str):
         
         # Create concat file for ffmpeg
         concat_file = f"{temp_dir}/concat.txt"
-        with open(concat_file, 'w') as f:
-            for vf in processed_files:
-                f.write(f"file '{vf}'\n")
         
         output_file = f"{temp_dir}/final.mp4"
         
         # Run ffmpeg concatenation
-        # Need to re-encode for consistent format when concatenating processed videos
+        # Videos from different sources may have different codecs/resolutions
+        # We need to normalize them first
         try:
-            # First try simple concat (faster, if all videos have same codec)
+            print(f"[{job_id}] Normalizing {len(processed_files)} videos before concatenation...")
+            
+            # Step 1: Normalize all videos to same format (1080x1920, h264, 30fps)
+            normalized_files = []
+            for i, vf in enumerate(processed_files):
+                normalized_path = f"{temp_dir}/normalized_{i}.mp4"
+                
+                # Normalize to TikTok format: 1080x1920, h264, aac, 30fps
+                normalize_cmd = [
+                    ffmpeg_path,
+                    '-i', vf,
+                    '-vf', 'scale=1080:1920:force_original_aspect_ratio=decrease,pad=1080:1920:(ow-iw)/2:(oh-ih)/2,setsar=1',
+                    '-c:v', 'libx264',
+                    '-preset', 'ultrafast',  # Fast encoding for Lambda
+                    '-crf', '23',
+                    '-r', '30',  # 30 fps
+                    '-c:a', 'aac',
+                    '-b:a', '128k',
+                    '-ar', '44100',  # Standard audio sample rate
+                    '-ac', '2',  # Stereo
+                    '-y',
+                    normalized_path
+                ]
+                
+                norm_result = subprocess.run(normalize_cmd, capture_output=True, text=True, timeout=120)
+                
+                if norm_result.returncode == 0:
+                    normalized_files.append(normalized_path)
+                    print(f"[{job_id}] Normalized video {i+1}/{len(processed_files)}")
+                else:
+                    print(f"[{job_id}] Failed to normalize video {i}: {norm_result.stderr[:200]}")
+                    # Use original if normalization fails
+                    normalized_files.append(vf)
+                
+                # Update progress
+                progress = Decimal(str(65 + (i + 1) / len(processed_files) * 15))
+                jobs_table.update_item(
+                    Key={'id': job_id},
+                    UpdateExpression='SET progress = :prog, updated_at = :updated',
+                    ExpressionAttributeValues={
+                        ':prog': progress,
+                        ':updated': datetime.now().isoformat()
+                    }
+                )
+            
+            # Step 2: Create concat file with normalized videos
+            with open(concat_file, 'w') as f:
+                for vf in normalized_files:
+                    f.write(f"file '{vf}'\n")
+            
+            print(f"[{job_id}] Concatenating normalized videos...")
+            
+            # Step 3: Simple concat (should work now since all videos are normalized)
             cmd = [
                 ffmpeg_path,
                 '-f', 'concat',
                 '-safe', '0',
                 '-i', concat_file,
-                '-c', 'copy',
+                '-c', 'copy',  # No re-encode needed since already normalized
                 '-y',
                 output_file
             ]
             
-            result = subprocess.run(cmd, capture_output=True, text=True, timeout=300)
+            result = subprocess.run(cmd, capture_output=True, text=True, timeout=120)
             
             if result.returncode != 0:
-                # If copy fails, re-encode
-                print(f"[{job_id}] Simple concat failed, trying re-encode...")
-                cmd = [
-                    ffmpeg_path,
-                    '-f', 'concat',
-                    '-safe', '0',
-                    '-i', concat_file,
-                    '-c:v', 'libx264',
-                    '-preset', 'fast',
-                    '-crf', '23',
-                    '-c:a', 'aac',
-                    '-b:a', '128k',
-                    '-y',
-                    output_file
-                ]
-                result = subprocess.run(cmd, capture_output=True, text=True, timeout=600)
-                
-                if result.returncode != 0:
-                    print(f"[{job_id}] ffmpeg error: {result.stderr}")
-                    raise Exception(f"ffmpeg failed: {result.stderr[:200]}")
+                print(f"[{job_id}] Concat failed: {result.stderr[:300]}")
+                raise Exception(f"ffmpeg concat failed: {result.stderr[:200]}")
+            
+            print(f"[{job_id}] Concatenation successful!")
                 
         except FileNotFoundError as fnf_error:
             # ffmpeg not available - this is a CRITICAL issue
