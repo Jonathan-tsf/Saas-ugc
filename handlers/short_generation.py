@@ -274,6 +274,9 @@ def generate_short_script(event):
     # Get ambassador_outfits (photos of ambassador wearing different outfits)
     ambassador_outfits = ambassador.get('ambassador_outfits', [])
     
+    # Get the outfits table to fetch full outfit details (type, description)
+    outfits_db_table = dynamodb.Table('outfits')
+    
     outfits = []
     for idx, outfit in enumerate(ambassador_outfits):
         if isinstance(outfit, dict):
@@ -285,36 +288,56 @@ def generate_short_script(event):
                     image_url = generated[0]
             
             if image_url:
+                outfit_id = outfit.get('outfit_id', f"outfit_{idx}")
+                outfit_type_basic = outfit.get('outfit_type', '')
+                
+                # Try to get full outfit details from outfits table
+                outfit_category = "Polyvalent"
+                outfit_description = outfit_type_basic
+                
+                # The outfit_id in ambassador_outfits references the original outfit
+                original_outfit_id = outfit.get('original_outfit_id') or outfit.get('outfit_id')
+                if original_outfit_id and not original_outfit_id.startswith('outfit_'):
+                    try:
+                        outfit_result = outfits_db_table.get_item(Key={'id': original_outfit_id})
+                        original_outfit = outfit_result.get('Item')
+                        if original_outfit:
+                            outfit_category = original_outfit.get('type', 'Polyvalent')  # Sport, Casual, Formel, Soirée, Spécial
+                            outfit_description = original_outfit.get('description', outfit_type_basic)
+                            print(f"Found outfit details: {outfit_category} - {outfit_description}")
+                    except Exception as e:
+                        print(f"Could not fetch outfit details for {original_outfit_id}: {e}")
+                
                 outfits.append({
-                    'id': outfit.get('outfit_id', f"outfit_{idx}"),
+                    'id': f"outfit_{idx}",  # Use index-based ID for script reference
                     'index': idx,
                     'image_url': image_url,
-                    'prompt': outfit.get('outfit_type', ''),
-                    'scene_type': outfit.get('outfit_type', ''),
+                    'category': outfit_category,  # Sport, Casual, Formel, Soirée, Spécial
+                    'description': outfit_description,
+                    'prompt': outfit_type_basic,
                 })
     
     if not outfits:
         return response(400, {'error': 'Ambassador has no outfit photos. Generate outfit photos first in the Outfits tab.'})
     
-    # Format outfits for AI prompt - categorize by type
-    outfits_text = "⚠️ CHOISIS LA TENUE QUI CORRESPOND À L'ACTIVITÉ DE LA SCÈNE:\n"
+    # Format outfits for AI prompt - use REAL categories from database
+    outfits_text = "⚠️ CHOISIS LA TENUE QUI CORRESPOND À L'ACTIVITÉ DE LA SCÈNE:\n\n"
     for o in outfits:
-        outfit_desc = o['prompt'] or o['scene_type'] or 'Tenue casual'
-        # Add category hint based on description
-        category_hint = ""
-        desc_lower = outfit_desc.lower()
-        if any(word in desc_lower for word in ['sport', 'gym', 'fitness', 'training', 'workout', 'legging', 'brassière', 'running']):
-            category_hint = "[SPORT/FITNESS]"
-        elif any(word in desc_lower for word in ['casual', 'jean', 'street', 'quotidien', 'ville']):
-            category_hint = "[CASUAL/QUOTIDIEN]"
-        elif any(word in desc_lower for word in ['cozy', 'pyjama', 'nuit', 'loungewear', 'détente', 'maison']):
-            category_hint = "[MAISON/DÉTENTE]"
-        elif any(word in desc_lower for word in ['chic', 'élégant', 'soirée', 'dress']):
-            category_hint = "[CHIC/HABILLÉ]"
-        else:
-            category_hint = "[POLYVALENT]"
+        # Use the REAL category from the outfits database
+        category = o.get('category', 'Polyvalent')
+        description = o.get('description', 'Tenue')
         
-        outfits_text += f"- ID: {o['id']} {category_hint} | {outfit_desc}\n"
+        # Map database category to usage hint
+        category_map = {
+            'Sport': '[🏋️ SPORT/FITNESS] → gym, stretching, workout, running',
+            'Casual': '[👕 CASUAL] → maison, cuisine, sortie quotidienne',
+            'Formel': '[👔 FORMEL] → travail, rendez-vous professionnel',
+            'Soirée': '[✨ SOIRÉE] → événement, restaurant, fête',
+            'Spécial': '[🎭 SPÉCIAL] → thématique, costume',
+        }
+        category_hint = category_map.get(category, '[🔄 POLYVALENT]')
+        
+        outfits_text += f"- ID: {o['id']} {category_hint}\n  Description: {description}\n\n"
     
     # Build the prompt for Claude - VIRAL TIKTOK FORMAT
     system_prompt = """Tu es un expert en création de contenus TikTok viraux. Tu crées des scripts VARIÉS et CRÉATIFS.
@@ -2075,7 +2098,7 @@ def concatenate_final_video(event):
         
         scenes = script.get('scenes', [])
         
-        # Collect selected video URLs in order
+        # Collect selected video URLs in order WITH text overlays
         video_urls = []
         for i, scene in enumerate(scenes):
             selected_url = scene.get('selected_video_url')
@@ -2083,7 +2106,9 @@ def concatenate_final_video(event):
                 video_urls.append({
                     'scene_index': i,
                     'url': selected_url,
-                    'duration': scene.get('duration', 5)
+                    'duration': scene.get('duration', 5),
+                    'text_overlay': scene.get('text_overlay'),  # Text to display on video
+                    'scene_type': scene.get('scene_type', 'scene')
                 })
         
         if not video_urls:
@@ -2141,13 +2166,17 @@ def concatenate_final_video(event):
 
 def concatenate_videos_async(job_id: str):
     """
-    Async handler to concatenate videos.
-    Downloads all videos, concatenates with ffmpeg-python, uploads result.
+    Async handler to concatenate videos with text overlays.
+    Downloads all videos, adds text overlays, concatenates with ffmpeg, uploads result.
     
-    Note: Requires ffmpeg in Lambda Layer or use a different approach.
-    For now, we'll create a simple "playlist" approach by storing order.
+    Text overlay style (TikTok-friendly):
+    - Font: Calibri Bold (or fallback)
+    - Size: 51px
+    - White background with rounded corners
+    - Position: Bottom center (above TikTok UI, ~15% from bottom)
+    - NOT covering face/action area
     """
-    print(f"[{job_id}] Starting video concatenation...")
+    print(f"[{job_id}] Starting video concatenation with text overlays...")
     
     try:
         result = jobs_table.get_item(Key={'id': job_id})
@@ -2210,6 +2239,92 @@ def concatenate_videos_async(job_id: str):
         if not video_files:
             raise Exception("No videos downloaded")
         
+        # Update status to processing (adding text overlays)
+        jobs_table.update_item(
+            Key={'id': job_id},
+            UpdateExpression='SET #status = :status, progress = :prog, updated_at = :updated',
+            ExpressionAttributeNames={'#status': 'status'},
+            ExpressionAttributeValues={
+                ':status': 'adding_overlays',
+                ':prog': Decimal('45'),
+                ':updated': datetime.now().isoformat()
+            }
+        )
+        
+        # Process each video to add text overlay if present
+        processed_files = []
+        ffmpeg_path = '/opt/bin/ffmpeg'  # Lambda Layer path
+        
+        for i, (video_file, video_info) in enumerate(zip(video_files, video_urls)):
+            text_overlay = video_info.get('text_overlay')
+            output_path = f"{temp_dir}/processed_{i}.mp4"
+            
+            if text_overlay and text_overlay.strip():
+                # Add text overlay using ffmpeg drawtext filter
+                # TikTok-friendly positioning: bottom center, above the UI (~15% from bottom)
+                # Style: White background box with padding, black text
+                
+                # Escape special characters for ffmpeg
+                safe_text = text_overlay.replace("'", "'\\''").replace(":", "\\:")
+                
+                # drawtext filter:
+                # - fontfile: use DejaVu (available in Lambda) or system font
+                # - fontsize: 42 (good for mobile)
+                # - fontcolor: black
+                # - box: 1 (enable background box)
+                # - boxcolor: white with slight transparency
+                # - boxborderw: 12 (padding around text)
+                # - x: centered
+                # - y: 15% from bottom (h-h*0.15)
+                
+                filter_complex = (
+                    f"drawtext=text='{safe_text}':"
+                    f"fontfile=/usr/share/fonts/dejavu/DejaVuSans-Bold.ttf:"
+                    f"fontsize=42:"
+                    f"fontcolor=black:"
+                    f"box=1:"
+                    f"boxcolor=white@0.95:"
+                    f"boxborderw=12:"
+                    f"x=(w-text_w)/2:"
+                    f"y=h-h*0.18-text_h"  # 18% from bottom
+                )
+                
+                cmd = [
+                    ffmpeg_path,
+                    '-i', video_file,
+                    '-vf', filter_complex,
+                    '-c:a', 'copy',  # Keep audio unchanged
+                    '-y',
+                    output_path
+                ]
+                
+                try:
+                    result = subprocess.run(cmd, capture_output=True, text=True, timeout=120)
+                    if result.returncode == 0:
+                        processed_files.append(output_path)
+                        print(f"[{job_id}] Added text overlay to scene {i}: '{text_overlay[:30]}...'")
+                    else:
+                        # If overlay fails, use original
+                        print(f"[{job_id}] Text overlay failed for scene {i}, using original: {result.stderr[:200]}")
+                        processed_files.append(video_file)
+                except Exception as e:
+                    print(f"[{job_id}] Error adding overlay to scene {i}: {e}")
+                    processed_files.append(video_file)
+            else:
+                # No text overlay - use original
+                processed_files.append(video_file)
+            
+            # Update progress
+            progress = Decimal(str(45 + (i + 1) / len(video_files) * 15))
+            jobs_table.update_item(
+                Key={'id': job_id},
+                UpdateExpression='SET progress = :prog, updated_at = :updated',
+                ExpressionAttributeValues={
+                    ':prog': progress,
+                    ':updated': datetime.now().isoformat()
+                }
+            )
+        
         # Update status to concatenating
         jobs_table.update_item(
             Key={'id': job_id},
@@ -2217,7 +2332,7 @@ def concatenate_videos_async(job_id: str):
             ExpressionAttributeNames={'#status': 'status'},
             ExpressionAttributeValues={
                 ':status': 'concatenating',
-                ':prog': Decimal('50'),
+                ':prog': Decimal('65'),
                 ':updated': datetime.now().isoformat()
             }
         )
@@ -2225,15 +2340,17 @@ def concatenate_videos_async(job_id: str):
         # Create concat file for ffmpeg
         concat_file = f"{temp_dir}/concat.txt"
         with open(concat_file, 'w') as f:
-            for vf in video_files:
+            for vf in processed_files:
                 f.write(f"file '{vf}'\n")
         
         output_file = f"{temp_dir}/final.mp4"
         
         # Run ffmpeg concatenation
+        # Need to re-encode for consistent format when concatenating processed videos
         try:
+            # First try simple concat (faster, if all videos have same codec)
             cmd = [
-                '/opt/bin/ffmpeg',  # Lambda Layer path
+                ffmpeg_path,
                 '-f', 'concat',
                 '-safe', '0',
                 '-i', concat_file,
@@ -2245,15 +2362,32 @@ def concatenate_videos_async(job_id: str):
             result = subprocess.run(cmd, capture_output=True, text=True, timeout=300)
             
             if result.returncode != 0:
-                print(f"[{job_id}] ffmpeg error: {result.stderr}")
-                raise Exception(f"ffmpeg failed: {result.stderr[:200]}")
+                # If copy fails, re-encode
+                print(f"[{job_id}] Simple concat failed, trying re-encode...")
+                cmd = [
+                    ffmpeg_path,
+                    '-f', 'concat',
+                    '-safe', '0',
+                    '-i', concat_file,
+                    '-c:v', 'libx264',
+                    '-preset', 'fast',
+                    '-crf', '23',
+                    '-c:a', 'aac',
+                    '-b:a', '128k',
+                    '-y',
+                    output_file
+                ]
+                result = subprocess.run(cmd, capture_output=True, text=True, timeout=600)
+                
+                if result.returncode != 0:
+                    print(f"[{job_id}] ffmpeg error: {result.stderr}")
+                    raise Exception(f"ffmpeg failed: {result.stderr[:200]}")
                 
         except FileNotFoundError:
-            # ffmpeg not available - fall back to simple approach
+            # ffmpeg not available - fall back to first processed video
             print(f"[{job_id}] ffmpeg not available, using first video as placeholder")
-            # Just use the first video as the "final" for now
             import shutil
-            shutil.copy(video_files[0], output_file)
+            shutil.copy(processed_files[0], output_file)
         
         # Upload to S3
         jobs_table.update_item(
