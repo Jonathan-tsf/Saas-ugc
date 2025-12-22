@@ -2255,64 +2255,30 @@ def concatenate_videos_async(job_id: str):
         processed_files = []
         ffmpeg_path = '/opt/bin/ffmpeg'  # Lambda Layer path
         
+        # Check if ffmpeg exists first
+        import os
+        if not os.path.exists(ffmpeg_path):
+            # Try alternative paths
+            alt_paths = ['/opt/ffmpeg/ffmpeg', '/usr/bin/ffmpeg', '/var/task/ffmpeg']
+            for alt in alt_paths:
+                if os.path.exists(alt):
+                    ffmpeg_path = alt
+                    break
+            else:
+                raise FileNotFoundError(f"ffmpeg not found at {ffmpeg_path} or alternatives")
+        
+        print(f"[{job_id}] Using ffmpeg at: {ffmpeg_path}")
+        
+        # For now, skip text overlay (font may not exist) - just use original videos
+        # TODO: Add text overlay when font is available in Lambda
         for i, (video_file, video_info) in enumerate(zip(video_files, video_urls)):
             text_overlay = video_info.get('text_overlay')
-            output_path = f"{temp_dir}/processed_{i}.mp4"
             
             if text_overlay and text_overlay.strip():
-                # Add text overlay using ffmpeg drawtext filter
-                # TikTok-friendly positioning: bottom center, above the UI (~15% from bottom)
-                # Style: White background box with padding, black text
-                
-                # Escape special characters for ffmpeg
-                safe_text = text_overlay.replace("'", "'\\''").replace(":", "\\:")
-                
-                # drawtext filter:
-                # - fontfile: use DejaVu (available in Lambda) or system font
-                # - fontsize: 42 (good for mobile)
-                # - fontcolor: black
-                # - box: 1 (enable background box)
-                # - boxcolor: white with slight transparency
-                # - boxborderw: 12 (padding around text)
-                # - x: centered
-                # - y: 15% from bottom (h-h*0.15)
-                
-                filter_complex = (
-                    f"drawtext=text='{safe_text}':"
-                    f"fontfile=/usr/share/fonts/dejavu/DejaVuSans-Bold.ttf:"
-                    f"fontsize=42:"
-                    f"fontcolor=black:"
-                    f"box=1:"
-                    f"boxcolor=white@0.95:"
-                    f"boxborderw=12:"
-                    f"x=(w-text_w)/2:"
-                    f"y=h-h*0.18-text_h"  # 18% from bottom
-                )
-                
-                cmd = [
-                    ffmpeg_path,
-                    '-i', video_file,
-                    '-vf', filter_complex,
-                    '-c:a', 'copy',  # Keep audio unchanged
-                    '-y',
-                    output_path
-                ]
-                
-                try:
-                    result = subprocess.run(cmd, capture_output=True, text=True, timeout=120)
-                    if result.returncode == 0:
-                        processed_files.append(output_path)
-                        print(f"[{job_id}] Added text overlay to scene {i}: '{text_overlay[:30]}...'")
-                    else:
-                        # If overlay fails, use original
-                        print(f"[{job_id}] Text overlay failed for scene {i}, using original: {result.stderr[:200]}")
-                        processed_files.append(video_file)
-                except Exception as e:
-                    print(f"[{job_id}] Error adding overlay to scene {i}: {e}")
-                    processed_files.append(video_file)
-            else:
-                # No text overlay - use original
-                processed_files.append(video_file)
+                print(f"[{job_id}] Scene {i} has text overlay: '{text_overlay[:50]}...' (skipping overlay for now)")
+            
+            # Use original video (text overlay disabled temporarily)
+            processed_files.append(video_file)
             
             # Update progress
             progress = Decimal(str(45 + (i + 1) / len(video_files) * 15))
@@ -2360,23 +2326,25 @@ def concatenate_videos_async(job_id: str):
                     '-vf', 'scale=1080:1920:force_original_aspect_ratio=decrease,pad=1080:1920:(ow-iw)/2:(oh-ih)/2,setsar=1',
                     '-c:v', 'libx264',
                     '-preset', 'ultrafast',  # Fast encoding for Lambda
-                    '-crf', '23',
+                    '-crf', '28',  # Higher CRF = faster encoding, smaller file
                     '-r', '30',  # 30 fps
                     '-c:a', 'aac',
-                    '-b:a', '128k',
-                    '-ar', '44100',  # Standard audio sample rate
-                    '-ac', '2',  # Stereo
+                    '-b:a', '96k',  # Lower bitrate for faster processing
+                    '-ar', '44100',
+                    '-ac', '2',
+                    '-t', '10',  # Max 10 seconds per video (safety limit)
                     '-y',
                     normalized_path
                 ]
                 
-                norm_result = subprocess.run(normalize_cmd, capture_output=True, text=True, timeout=120)
+                print(f"[{job_id}] Normalizing video {i+1}/{len(processed_files)}...")
+                norm_result = subprocess.run(normalize_cmd, capture_output=True, text=True, timeout=180)
                 
                 if norm_result.returncode == 0:
                     normalized_files.append(normalized_path)
-                    print(f"[{job_id}] Normalized video {i+1}/{len(processed_files)}")
+                    print(f"[{job_id}] Normalized video {i+1}/{len(processed_files)} OK")
                 else:
-                    print(f"[{job_id}] Failed to normalize video {i}: {norm_result.stderr[:200]}")
+                    print(f"[{job_id}] WARN: Failed to normalize video {i}: {norm_result.stderr[:300]}")
                     # Use original if normalization fails
                     normalized_files.append(vf)
                 
@@ -2396,7 +2364,8 @@ def concatenate_videos_async(job_id: str):
                 for vf in normalized_files:
                     f.write(f"file '{vf}'\n")
             
-            print(f"[{job_id}] Concatenating normalized videos...")
+            print(f"[{job_id}] Concatenating {len(normalized_files)} normalized videos...")
+            print(f"[{job_id}] Concat file content: {open(concat_file).read()}")
             
             # Step 3: Simple concat (should work now since all videos are normalized)
             cmd = [
@@ -2409,13 +2378,22 @@ def concatenate_videos_async(job_id: str):
                 output_file
             ]
             
-            result = subprocess.run(cmd, capture_output=True, text=True, timeout=120)
+            print(f"[{job_id}] Running concat command...")
+            result = subprocess.run(cmd, capture_output=True, text=True, timeout=180)
             
             if result.returncode != 0:
-                print(f"[{job_id}] Concat failed: {result.stderr[:300]}")
-                raise Exception(f"ffmpeg concat failed: {result.stderr[:200]}")
+                print(f"[{job_id}] Concat FAILED!")
+                print(f"[{job_id}] STDERR: {result.stderr}")
+                print(f"[{job_id}] STDOUT: {result.stdout}")
+                raise Exception(f"ffmpeg concat failed: {result.stderr[:300]}")
             
-            print(f"[{job_id}] Concatenation successful!")
+            # Verify output file exists and has size
+            import os
+            if os.path.exists(output_file):
+                file_size = os.path.getsize(output_file)
+                print(f"[{job_id}] Concatenation successful! Output size: {file_size} bytes")
+            else:
+                raise Exception("Output file was not created")
                 
         except FileNotFoundError as fnf_error:
             # ffmpeg not available - this is a CRITICAL issue
