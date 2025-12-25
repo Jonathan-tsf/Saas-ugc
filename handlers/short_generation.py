@@ -508,12 +508,31 @@ Génère ce JSON:
       "prompt_image": "Put this person [action] in [lieu]. [détails visuels]",
       "prompt_video": "Description du mouvement",
       "outfit_id": "ID de la tenue",
+      "contextual_outfit": null,
       "camera_angle": "pov/medium/wide/close-up",
       "transition_to_next": "cut/swipe/none",
       "product_visible": false
     }}
   ]
 }}
+
+⚠️ CHAMP "contextual_outfit" - TRÈS IMPORTANT:
+Ce champ permet de CHANGER la tenue de la personne si la scène le nécessite.
+
+QUAND REMPLIR ce champ (exemples CONCRETS):
+- Scène au lit/sommeil/réveil → "wearing soft gray pajamas" ou "in cozy sleepwear"
+- Scène sous la douche/bain → "wrapped in a white fluffy towel"  
+- Scène piscine/plage → "wearing a black sporty one-piece swimsuit"
+- Scène cuisine matin → "in a comfortable oversized t-shirt and shorts"
+- Scène yoga/méditation → "wearing fitted yoga pants and sports bra"
+
+QUAND LAISSER null:
+- Si tu utilises une tenue [SPORT/FITNESS] pour du sport → null
+- Si tu utilises une tenue [CASUAL] pour une scène maison → null
+- En gros: si la tenue existante CORRESPOND à l'activité → null
+
+RÈGLE: Regarde chaque scène et demande-toi "La tenue choisie a-t-elle du SENS pour cette activité?"
+Si non → remplis contextual_outfit avec une description de tenue appropriée.
 
 Rappel: Varie les formats, sois créatif!"""
 
@@ -1060,13 +1079,14 @@ def start_scene_photos_generation(event):
         
         scene = scenes[scene_index]
         scene_prompt = scene.get('prompt_image', 'Put this person in an aesthetic room, casual pose, relaxed vibe.')
+        contextual_outfit = scene.get('contextual_outfit')  # Override outfit in prompt if needed
         ambassador_id = script.get('ambassador_id', 'unknown')
         
         # Get product info ONLY if product_visible is true for this scene
         product_visible = scene.get('product_visible', False)
         product = script.get('product', {}) if product_visible else {}
         
-        print(f"Scene {scene_index} - product_visible: {product_visible}, including product: {bool(product)}")
+        print(f"Scene {scene_index} - product_visible: {product_visible}, including product: {bool(product)}, contextual_outfit: {contextual_outfit}")
         
         # Create job in DynamoDB
         job_id = str(uuid.uuid4())
@@ -1079,6 +1099,7 @@ def start_scene_photos_generation(event):
             'ambassador_id': ambassador_id,
             'outfit_image_url': outfit_image_url,
             'scene_prompt': scene_prompt,
+            'contextual_outfit': contextual_outfit,  # Override outfit description if scene needs different clothes
             'product_visible': product_visible,
             'product': product,  # Only passed if product_visible is true
             'photos': [],
@@ -1177,6 +1198,7 @@ def generate_scene_photos_async(job_id: str, outfit_image_url: str):
         scene_index = int(job.get('scene_index', 0))
         ambassador_id = job.get('ambassador_id', 'unknown')
         scene_prompt = job.get('scene_prompt', 'Put this person in an aesthetic room, casual pose, relaxed vibe.')
+        contextual_outfit = job.get('contextual_outfit')  # Override outfit if scene needs different clothes
         
         # Build product placement text ONLY if product_visible is true
         product_text = ""
@@ -1191,9 +1213,36 @@ def generate_scene_photos_async(job_id: str, outfit_image_url: str):
         else:
             print("NOT including product in prompt (product_visible is False)")
         
+        # Build contextual outfit override text if needed
+        outfit_override_text = ""
+        if contextual_outfit:
+            outfit_override_text = f" IMPORTANT: Change the person's outfit to: {contextual_outfit} (keep same face and body, only change clothes to match the scene context)."
+            print(f"Using contextual outfit override: {contextual_outfit}")
+        
         # Build the full prompt with ALL constraints
         # IMPORTANT: Authenticity-focused constraints for TikTok content (NOT cinematic)
-        constraints = """CRITICAL RULES FOR AUTHENTIC TIKTOK CONTENT:
+        if contextual_outfit:
+            # When contextual outfit is specified, we need to change clothes
+            constraints = f"""CRITICAL RULES FOR AUTHENTIC TIKTOK CONTENT:
+- Keep EXACT same face and body shape from FIRST reference image
+- CHANGE THE OUTFIT TO: {contextual_outfit} (this is essential for scene context!)
+- Person's hands must be EMPTY (no objects, no phone, no weights, no bottle, no equipment)
+- ABSOLUTELY NO TEXT anywhere in image (no signs, no logos, no brand names, no gym equipment labels, no numbers on weights, no writing of any kind)
+- ONLY ONE PERSON in the image (the reference person) - NO OTHER PEOPLE anywhere, even in background
+- Location should feel LIVED-IN and REAL, not a movie set
+- NO TikTok overlays, UI elements, or social media graphics
+- NO watermarks or stamps
+
+STYLE - AUTHENTIC TIKTOK (NOT CINEMATIC):
+- Natural smartphone-quality lighting (window light, room lights)
+- Slightly imperfect composition like a real photo
+- NO dramatic lighting, NO professional studio lighting
+- NO cinematic color grading or film looks
+- Feels like iPhone photo, not a movie still
+- Real locations (home gym, bedroom, kitchen, apartment)
+- 9:16 vertical format for TikTok"""
+        else:
+            constraints = """CRITICAL RULES FOR AUTHENTIC TIKTOK CONTENT:
 - Keep EXACT same face, body shape and clothes from FIRST reference image
 - Person's hands must be EMPTY (no objects, no phone, no weights, no bottle, no equipment)
 - ABSOLUTELY NO TEXT anywhere in image (no signs, no logos, no brand names, no gym equipment labels, no numbers on weights, no writing of any kind)
@@ -1794,7 +1843,7 @@ def generate_scene_videos_async(job_id: str):
         
         # PHASE 3: Poll ALL predictions
         import time
-        max_wait_seconds = 600
+        max_wait_seconds = 540  # 9 minutes (leave margin for Lambda timeout)
         poll_interval = 10
         
         pending_tasks = [t for t in video_tasks if t.get('replicate_id') and t.get('status') == 'processing']
@@ -1835,6 +1884,26 @@ def generate_scene_videos_async(job_id: str):
                 }
             )
         
+        # Check if we timed out with pending tasks
+        if pending_tasks:
+            print(f"[{job_id}] Timeout reached with {len(pending_tasks)} pending tasks")
+            # Mark pending tasks as timeout
+            for task in pending_tasks:
+                task['status'] = 'timeout'
+                task['error'] = 'Video generation timed out. Please retry.'
+            
+            # Update job with timeout status but continue to save completed videos
+            jobs_table.update_item(
+                Key={'id': job_id},
+                UpdateExpression='SET video_tasks = :tasks, #status = :status, updated_at = :updated',
+                ExpressionAttributeNames={'#status': 'status'},
+                ExpressionAttributeValues={
+                    ':tasks': video_tasks,
+                    ':status': 'partial_timeout',
+                    ':updated': datetime.now().isoformat()
+                }
+            )
+        
         # PHASE 4: Download and save to S3
         generated_videos = []
         
@@ -1862,63 +1931,99 @@ def generate_scene_videos_async(job_id: str):
                 except Exception as e:
                     print(f"[{job_id}] Error saving to S3: {e}")
         
-        # PHASE 5: Update script with videos
-        if generated_videos:
-            try:
-                script_result = shorts_table.get_item(Key={'id': script_id})
-                script = script_result.get('Item')
+        # PHASE 5: Update script with videos AND errors
+        # Always update the script, even if some videos failed
+        try:
+            script_result = shorts_table.get_item(Key={'id': script_id})
+            script = script_result.get('Item')
+            
+            if script:
+                scenes = script.get('scenes', [])
                 
-                if script:
-                    scenes = script.get('scenes', [])
-                    
-                    # Group videos by scene_index
-                    for video in generated_videos:
-                        scene_idx = int(video['scene_index'])
+                # Group videos by scene_index
+                for video in generated_videos:
+                    scene_idx = int(video['scene_index'])
+                    if 0 <= scene_idx < len(scenes):
+                        if 'generated_videos' not in scenes[scene_idx]:
+                            scenes[scene_idx]['generated_videos'] = []
+                        scenes[scene_idx]['generated_videos'].append({
+                            'video_num': video['video_num'],
+                            'url': video['url'],
+                            'prompt': video['prompt'],
+                            'created_at': video['created_at']
+                        })
+                
+                # Also add error info for failed/timeout tasks
+                for task in video_tasks:
+                    if task.get('status') in ['error', 'timeout']:
+                        scene_idx = int(task.get('scene_index', -1))
                         if 0 <= scene_idx < len(scenes):
-                            if 'generated_videos' not in scenes[scene_idx]:
-                                scenes[scene_idx]['generated_videos'] = []
-                            scenes[scene_idx]['generated_videos'].append({
-                                'video_num': video['video_num'],
-                                'url': video['url'],
-                                'prompt': video['prompt'],
-                                'created_at': video['created_at']
+                            if 'video_errors' not in scenes[scene_idx]:
+                                scenes[scene_idx]['video_errors'] = []
+                            scenes[scene_idx]['video_errors'].append({
+                                'video_num': task.get('video_num'),
+                                'status': task.get('status'),
+                                'error': task.get('error', 'Unknown error'),
+                                'timestamp': datetime.now().isoformat()
                             })
-                    
-                    script['scenes'] = scenes
-                    script['updated_at'] = datetime.now().isoformat()
-                    
-                    # Convert floats to Decimal
-                    def convert_to_decimal(obj):
-                        if isinstance(obj, float):
-                            return Decimal(str(obj))
-                        elif isinstance(obj, dict):
-                            return {k: convert_to_decimal(v) for k, v in obj.items()}
-                        elif isinstance(obj, list):
-                            return [convert_to_decimal(i) for i in obj]
-                        return obj
-                    
-                    script = convert_to_decimal(script)
-                    shorts_table.put_item(Item=script)
-                    print(f"[{job_id}] Updated script with {len(generated_videos)} videos")
-                    
-            except Exception as e:
-                print(f"[{job_id}] Error updating script: {e}")
+                
+                script['scenes'] = scenes
+                script['updated_at'] = datetime.now().isoformat()
+                
+                # Convert floats to Decimal
+                def convert_to_decimal(obj):
+                    if isinstance(obj, float):
+                        return Decimal(str(obj))
+                    elif isinstance(obj, dict):
+                        return {k: convert_to_decimal(v) for k, v in obj.items()}
+                    elif isinstance(obj, list):
+                        return [convert_to_decimal(i) for i in obj]
+                    return obj
+                
+                script = convert_to_decimal(script)
+                shorts_table.put_item(Item=script)
+                print(f"[{job_id}] Updated script with {len(generated_videos)} videos")
+                
+        except Exception as e:
+            print(f"[{job_id}] Error updating script: {e}")
         
-        # Mark job complete
-        final_status = 'completed' if generated_videos else 'error'
+        # Mark job complete with appropriate status
+        timed_out_tasks = [t for t in video_tasks if t.get('status') == 'timeout']
+        error_tasks = [t for t in video_tasks if t.get('status') == 'error']
+        
+        if generated_videos and not timed_out_tasks and not error_tasks:
+            final_status = 'completed'
+            error_msg = None
+        elif generated_videos and timed_out_tasks:
+            final_status = 'partial'
+            error_msg = f'{len(generated_videos)}/{total_videos} videos generated. {len(timed_out_tasks)} timed out. Please retry for missing videos.'
+        elif generated_videos and error_tasks:
+            final_status = 'partial'
+            error_msg = f'{len(generated_videos)}/{total_videos} videos generated. Some failed.'
+        else:
+            final_status = 'error'
+            error_msg = 'No videos were generated. Please retry.'
+        
+        update_expr = 'SET #status = :status, generated_videos = :videos, progress = :prog, updated_at = :updated'
+        expr_values = {
+            ':status': final_status,
+            ':videos': generated_videos,
+            ':prog': Decimal('100'),
+            ':updated': datetime.now().isoformat()
+        }
+        
+        if error_msg:
+            update_expr += ', error = :error'
+            expr_values[':error'] = error_msg
+        
         jobs_table.update_item(
             Key={'id': job_id},
-            UpdateExpression='SET #status = :status, generated_videos = :videos, progress = :prog, updated_at = :updated',
+            UpdateExpression=update_expr,
             ExpressionAttributeNames={'#status': 'status'},
-            ExpressionAttributeValues={
-                ':status': final_status,
-                ':videos': generated_videos,
-                ':prog': Decimal('100'),
-                ':updated': datetime.now().isoformat()
-            }
+            ExpressionAttributeValues=expr_values
         )
         
-        print(f"[{job_id}] Scene video generation completed: {len(generated_videos)}/{total_videos}")
+        print(f"[{job_id}] Scene video generation {final_status}: {len(generated_videos)}/{total_videos}")
         
     except Exception as e:
         print(f"[{job_id}] Fatal error: {e}")
@@ -2311,8 +2416,10 @@ def concatenate_videos_async(job_id: str):
         # Run ffmpeg concatenation
         # Videos from different sources may have different codecs/resolutions
         # We need to normalize them first
+        # NOTE: Using 60s timeout per video to avoid Lambda timeout
         try:
-            print(f"[{job_id}] Normalizing {len(processed_files)} videos before concatenation...")
+            num_videos = len(processed_files)
+            print(f"[{job_id}] Normalizing {num_videos} videos before concatenation...")
             
             # Step 1: Normalize all videos to same format (1080x1920, h264, 30fps)
             normalized_files = []
@@ -2320,36 +2427,49 @@ def concatenate_videos_async(job_id: str):
                 normalized_path = f"{temp_dir}/normalized_{i}.mp4"
                 
                 # Normalize to TikTok format: 1080x1920, h264, aac, 30fps
+                # Ultra-fast settings to avoid Lambda timeout (target: <60s per video)
                 normalize_cmd = [
                     ffmpeg_path,
                     '-i', vf,
                     '-vf', 'scale=1080:1920:force_original_aspect_ratio=decrease,pad=1080:1920:(ow-iw)/2:(oh-ih)/2,setsar=1',
                     '-c:v', 'libx264',
-                    '-preset', 'ultrafast',  # Fast encoding for Lambda
-                    '-crf', '28',  # Higher CRF = faster encoding, smaller file
-                    '-r', '30',  # 30 fps
+                    '-preset', 'ultrafast',  # Fastest possible encoding
+                    '-tune', 'zerolatency',  # Even faster than fastdecode
+                    '-crf', '32',            # Higher CRF = faster encoding, acceptable quality
+                    '-r', '24',              # 24 fps is sufficient and faster
+                    '-g', '24',              # Keyframe every 1s for easier concat
                     '-c:a', 'aac',
-                    '-b:a', '96k',  # Lower bitrate for faster processing
-                    '-ar', '44100',
-                    '-ac', '2',
-                    '-t', '10',  # Max 10 seconds per video (safety limit)
+                    '-b:a', '48k',           # Lower audio bitrate for speed
+                    '-ar', '22050',          # Lower sample rate for speed
+                    '-ac', '1',              # Mono audio (faster)
+                    '-t', '6',               # Max 6 seconds per video (shorter = faster)
+                    '-threads', '0',         # Use all available cores
+                    '-movflags', '+faststart',
                     '-y',
                     normalized_path
                 ]
                 
-                print(f"[{job_id}] Normalizing video {i+1}/{len(processed_files)}...")
-                norm_result = subprocess.run(normalize_cmd, capture_output=True, text=True, timeout=180)
+                print(f"[{job_id}] Normalizing video {i+1}/{num_videos}...")
+                start_time = datetime.now()
                 
-                if norm_result.returncode == 0:
-                    normalized_files.append(normalized_path)
-                    print(f"[{job_id}] Normalized video {i+1}/{len(processed_files)} OK")
-                else:
-                    print(f"[{job_id}] WARN: Failed to normalize video {i}: {norm_result.stderr[:300]}")
-                    # Use original if normalization fails
+                try:
+                    norm_result = subprocess.run(normalize_cmd, capture_output=True, text=True, timeout=60)  # 60s timeout
+                    elapsed = (datetime.now() - start_time).total_seconds()
+                    
+                    if norm_result.returncode == 0:
+                        normalized_files.append(normalized_path)
+                        print(f"[{job_id}] Normalized video {i+1}/{num_videos} OK in {elapsed:.1f}s")
+                    else:
+                        print(f"[{job_id}] WARN: Failed to normalize video {i}: {norm_result.stderr[:200]}")
+                        # Use original if normalization fails
+                        normalized_files.append(vf)
+                except subprocess.TimeoutExpired:
+                    elapsed = (datetime.now() - start_time).total_seconds()
+                    print(f"[{job_id}] WARN: Normalization timeout for video {i} after {elapsed:.1f}s, using original")
                     normalized_files.append(vf)
                 
-                # Update progress
-                progress = Decimal(str(65 + (i + 1) / len(processed_files) * 15))
+                # Update progress (65% -> 80% during normalization)
+                progress = Decimal(str(65 + (i + 1) / num_videos * 15))
                 jobs_table.update_item(
                     Key={'id': job_id},
                     UpdateExpression='SET progress = :prog, updated_at = :updated',
@@ -2379,7 +2499,7 @@ def concatenate_videos_async(job_id: str):
             ]
             
             print(f"[{job_id}] Running concat command...")
-            result = subprocess.run(cmd, capture_output=True, text=True, timeout=180)
+            result = subprocess.run(cmd, capture_output=True, text=True, timeout=60)  # 60s should be enough for concat
             
             if result.returncode != 0:
                 print(f"[{job_id}] Concat FAILED!")
