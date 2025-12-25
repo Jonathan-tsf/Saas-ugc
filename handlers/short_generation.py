@@ -2408,104 +2408,105 @@ def concatenate_videos_async(job_id: str):
             }
         )
         
-        # Create concat file for ffmpeg
-        concat_file = f"{temp_dir}/concat.txt"
-        
         output_file = f"{temp_dir}/final.mp4"
         
-        # Run ffmpeg concatenation
-        # Videos from different sources may have different codecs/resolutions
-        # We need to normalize them first
-        # NOTE: Using 60s timeout per video to avoid Lambda timeout
+        # Run ffmpeg concatenation with filter_complex (normalize + concat in ONE pass)
+        # This is MUCH faster than normalizing each video separately
         try:
             num_videos = len(processed_files)
-            print(f"[{job_id}] Normalizing {num_videos} videos before concatenation...")
+            print(f"[{job_id}] Concatenating {num_videos} videos in single pass...")
             
-            # Step 1: Normalize all videos to same format (1080x1920, h264, 30fps)
-            normalized_files = []
-            for i, vf in enumerate(processed_files):
-                normalized_path = f"{temp_dir}/normalized_{i}.mp4"
-                
-                # Normalize to TikTok format: 1080x1920, h264, aac, 30fps
-                # Ultra-fast settings to avoid Lambda timeout (target: <60s per video)
-                normalize_cmd = [
-                    ffmpeg_path,
-                    '-i', vf,
-                    '-vf', 'scale=1080:1920:force_original_aspect_ratio=decrease,pad=1080:1920:(ow-iw)/2:(oh-ih)/2,setsar=1',
-                    '-c:v', 'libx264',
-                    '-preset', 'ultrafast',  # Fastest possible encoding
-                    '-tune', 'zerolatency',  # Even faster than fastdecode
-                    '-crf', '32',            # Higher CRF = faster encoding, acceptable quality
-                    '-r', '24',              # 24 fps is sufficient and faster
-                    '-g', '24',              # Keyframe every 1s for easier concat
-                    '-c:a', 'aac',
-                    '-b:a', '48k',           # Lower audio bitrate for speed
-                    '-ar', '22050',          # Lower sample rate for speed
-                    '-ac', '1',              # Mono audio (faster)
-                    '-t', '6',               # Max 6 seconds per video (shorter = faster)
-                    '-threads', '0',         # Use all available cores
-                    '-movflags', '+faststart',
-                    '-y',
-                    normalized_path
-                ]
-                
-                print(f"[{job_id}] Normalizing video {i+1}/{num_videos}...")
-                start_time = datetime.now()
-                
-                try:
-                    norm_result = subprocess.run(normalize_cmd, capture_output=True, text=True, timeout=60)  # 60s timeout
-                    elapsed = (datetime.now() - start_time).total_seconds()
-                    
-                    if norm_result.returncode == 0:
-                        normalized_files.append(normalized_path)
-                        print(f"[{job_id}] Normalized video {i+1}/{num_videos} OK in {elapsed:.1f}s")
-                    else:
-                        print(f"[{job_id}] WARN: Failed to normalize video {i}: {norm_result.stderr[:200]}")
-                        # Use original if normalization fails
-                        normalized_files.append(vf)
-                except subprocess.TimeoutExpired:
-                    elapsed = (datetime.now() - start_time).total_seconds()
-                    print(f"[{job_id}] WARN: Normalization timeout for video {i} after {elapsed:.1f}s, using original")
-                    normalized_files.append(vf)
-                
-                # Update progress (65% -> 80% during normalization)
-                progress = Decimal(str(65 + (i + 1) / num_videos * 15))
-                jobs_table.update_item(
-                    Key={'id': job_id},
-                    UpdateExpression='SET progress = :prog, updated_at = :updated',
-                    ExpressionAttributeValues={
-                        ':prog': progress,
-                        ':updated': datetime.now().isoformat()
-                    }
+            # Build filter_complex command that normalizes and concatenates in one go
+            # This avoids writing intermediate files and is much faster
+            
+            # Build input arguments
+            input_args = []
+            for vf in processed_files:
+                input_args.extend(['-i', vf])
+            
+            # Build filter_complex: scale each input, then concat
+            filter_parts = []
+            concat_inputs = []
+            for i in range(num_videos):
+                # Scale and pad each video to 1080x1920, set fps to 24
+                filter_parts.append(
+                    f"[{i}:v]scale=1080:1920:force_original_aspect_ratio=decrease,"
+                    f"pad=1080:1920:(ow-iw)/2:(oh-ih)/2,setsar=1,fps=24[v{i}]"
                 )
+                # Handle audio - create silent audio if no audio stream
+                filter_parts.append(
+                    f"[{i}:a]aresample=44100,aformat=sample_fmts=fltp:channel_layouts=stereo[a{i}]"
+                )
+                concat_inputs.append(f"[v{i}][a{i}]")
             
-            # Step 2: Create concat file with normalized videos
-            with open(concat_file, 'w') as f:
-                for vf in normalized_files:
-                    f.write(f"file '{vf}'\n")
+            # Concat all streams
+            filter_complex = ";".join(filter_parts) + ";" + "".join(concat_inputs) + f"concat=n={num_videos}:v=1:a=1[outv][outa]"
             
-            print(f"[{job_id}] Concatenating {len(normalized_files)} normalized videos...")
-            print(f"[{job_id}] Concat file content: {open(concat_file).read()}")
-            
-            # Step 3: Simple concat (should work now since all videos are normalized)
             cmd = [
                 ffmpeg_path,
-                '-f', 'concat',
-                '-safe', '0',
-                '-i', concat_file,
-                '-c', 'copy',  # No re-encode needed since already normalized
+                *input_args,
+                '-filter_complex', filter_complex,
+                '-map', '[outv]',
+                '-map', '[outa]',
+                '-c:v', 'libx264',
+                '-preset', 'ultrafast',
+                '-crf', '28',
+                '-c:a', 'aac',
+                '-b:a', '128k',
+                '-movflags', '+faststart',
                 '-y',
                 output_file
             ]
             
-            print(f"[{job_id}] Running concat command...")
-            result = subprocess.run(cmd, capture_output=True, text=True, timeout=60)  # 60s should be enough for concat
+            print(f"[{job_id}] Running single-pass concat command...")
+            start_time = datetime.now()
+            
+            # Run with 5 minute timeout - single pass should be fast
+            result = subprocess.run(cmd, capture_output=True, text=True, timeout=300)
+            elapsed = (datetime.now() - start_time).total_seconds()
             
             if result.returncode != 0:
-                print(f"[{job_id}] Concat FAILED!")
-                print(f"[{job_id}] STDERR: {result.stderr}")
-                print(f"[{job_id}] STDOUT: {result.stdout}")
-                raise Exception(f"ffmpeg concat failed: {result.stderr[:300]}")
+                print(f"[{job_id}] Concat FAILED after {elapsed:.1f}s!")
+                print(f"[{job_id}] STDERR: {result.stderr[:500]}")
+                
+                # Fallback: try simpler approach without audio processing
+                print(f"[{job_id}] Trying fallback: video-only concat...")
+                
+                # Simpler filter_complex without audio
+                filter_parts_simple = []
+                concat_inputs_simple = []
+                for i in range(num_videos):
+                    filter_parts_simple.append(
+                        f"[{i}:v]scale=1080:1920:force_original_aspect_ratio=decrease,"
+                        f"pad=1080:1920:(ow-iw)/2:(oh-ih)/2,setsar=1,fps=24[v{i}]"
+                    )
+                    concat_inputs_simple.append(f"[v{i}]")
+                
+                filter_simple = ";".join(filter_parts_simple) + ";" + "".join(concat_inputs_simple) + f"concat=n={num_videos}:v=1:a=0[outv]"
+                
+                cmd_simple = [
+                    ffmpeg_path,
+                    *input_args,
+                    '-filter_complex', filter_simple,
+                    '-map', '[outv]',
+                    '-c:v', 'libx264',
+                    '-preset', 'ultrafast',
+                    '-crf', '28',
+                    '-an',  # No audio
+                    '-movflags', '+faststart',
+                    '-y',
+                    output_file
+                ]
+                
+                result = subprocess.run(cmd_simple, capture_output=True, text=True, timeout=300)
+                elapsed = (datetime.now() - start_time).total_seconds()
+                
+                if result.returncode != 0:
+                    print(f"[{job_id}] Fallback also FAILED!")
+                    print(f"[{job_id}] STDERR: {result.stderr[:500]}")
+                    raise Exception(f"ffmpeg concat failed: {result.stderr[:300]}")
+            
+            print(f"[{job_id}] Concat completed in {elapsed:.1f}s")
             
             # Verify output file exists and has size
             import os
