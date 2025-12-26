@@ -2428,16 +2428,96 @@ def concatenate_videos_async(job_id: str):
         
         print(f"[{job_id}] Using ffmpeg at: {ffmpeg_path}")
         
-        # For now, skip text overlay (font may not exist) - just use original videos
-        # TODO: Add text overlay when font is available in Lambda
+        # Helper function to escape text for ffmpeg drawtext filter
+        def escape_ffmpeg_text(text):
+            """Escape special characters for ffmpeg drawtext filter"""
+            if not text:
+                return ""
+            # Escape backslash first, then other special chars
+            text = text.replace('\\', '\\\\')
+            text = text.replace("'", "\\'")
+            text = text.replace(':', '\\:')
+            text = text.replace('%', '\\%')
+            # Remove newlines - replace with space
+            text = text.replace('\n', ' ').replace('\r', '')
+            return text.strip()
+        
+        # Process each video to add text overlay if present
         for i, (video_file, video_info) in enumerate(zip(video_files, video_urls)):
             text_overlay = video_info.get('text_overlay')
             
             if text_overlay and text_overlay.strip():
-                print(f"[{job_id}] Scene {i} has text overlay: '{text_overlay[:50]}...' (skipping overlay for now)")
-            
-            # Use original video (text overlay disabled temporarily)
-            processed_files.append(video_file)
+                print(f"[{job_id}] Scene {i} has text overlay: '{text_overlay[:50]}...'")
+                
+                # Output file for this processed video
+                output_with_text = f"{temp_dir}/scene_{i}_with_text.mp4"
+                
+                # Escape text for ffmpeg
+                escaped_text = escape_ffmpeg_text(text_overlay)
+                
+                # Text overlay styling - TikTok style (bottom center, white on semi-transparent black box)
+                # Parameters:
+                # - fontsize=42: Clear readable size for mobile
+                # - fontcolor=white: White text
+                # - box=1: Enable background box
+                # - boxcolor=black@0.7: Semi-transparent black background (70% opacity)
+                # - boxborderw=15: Padding around text
+                # - x=(w-text_w)/2: Center horizontally
+                # - y=h-th-120: Position 120px from bottom
+                # - line_spacing=8: Space between lines if text wraps
+                
+                # Build drawtext filter - use default font (sans-serif available in Lambda)
+                # Try multiple fonts in order of preference
+                drawtext_filter = (
+                    f"drawtext=text='{escaped_text}'"
+                    f":fontsize=42"
+                    f":fontcolor=white"
+                    f":box=1"
+                    f":boxcolor=black@0.7"
+                    f":boxborderw=15"
+                    f":x=(w-text_w)/2"
+                    f":y=h-th-120"
+                    f":line_spacing=8"
+                )
+                
+                # ffmpeg command to add text overlay
+                overlay_cmd = [
+                    ffmpeg_path,
+                    '-i', video_file,
+                    '-vf', drawtext_filter,
+                    '-c:v', 'libx264',
+                    '-preset', 'fast',
+                    '-crf', '23',
+                    '-c:a', 'copy',  # Keep audio as-is
+                    '-movflags', '+faststart',
+                    '-y',
+                    output_with_text
+                ]
+                
+                try:
+                    print(f"[{job_id}] Adding text overlay to scene {i}...")
+                    result = subprocess.run(overlay_cmd, capture_output=True, text=True, timeout=120)
+                    
+                    if result.returncode == 0 and os.path.exists(output_with_text):
+                        file_size = os.path.getsize(output_with_text)
+                        print(f"[{job_id}] Scene {i} text overlay added successfully ({file_size} bytes)")
+                        processed_files.append(output_with_text)
+                    else:
+                        # Log error but use original video as fallback
+                        print(f"[{job_id}] Text overlay failed for scene {i}: {result.stderr[:200]}")
+                        print(f"[{job_id}] Using original video for scene {i}")
+                        processed_files.append(video_file)
+                        
+                except subprocess.TimeoutExpired:
+                    print(f"[{job_id}] Text overlay timeout for scene {i}, using original")
+                    processed_files.append(video_file)
+                except Exception as e:
+                    print(f"[{job_id}] Text overlay error for scene {i}: {e}")
+                    processed_files.append(video_file)
+            else:
+                # No text overlay for this scene
+                print(f"[{job_id}] Scene {i} has no text overlay")
+                processed_files.append(video_file)
             
             # Update progress
             progress = Decimal(str(45 + (i + 1) / len(video_files) * 15))
@@ -2464,11 +2544,13 @@ def concatenate_videos_async(job_id: str):
         
         output_file = f"{temp_dir}/final.mp4"
         
-        # ULTRA-SIMPLE CONCATENATION using concat demuxer
-        # This is the fastest and most reliable method
+        # Check if any videos had text overlays applied (they were re-encoded)
+        has_overlays = any(v.get('text_overlay') and v.get('text_overlay').strip() for v in video_urls)
+        
+        # CONCATENATION - use re-encode if overlays were applied to ensure compatibility
         try:
             num_videos = len(processed_files)
-            print(f"[{job_id}] Concatenating {num_videos} videos using simple concat demuxer...")
+            print(f"[{job_id}] Concatenating {num_videos} videos (overlays={has_overlays})...")
             
             # Create concat list file
             concat_list_file = f"{temp_dir}/concat_list.txt"
@@ -2480,30 +2562,39 @@ def concatenate_videos_async(job_id: str):
             
             print(f"[{job_id}] Concat list created with {num_videos} videos")
             
-            # Simple concat command - no re-encoding, just stream copy
-            # This is SUPER fast and preserves quality
-            cmd = [
-                ffmpeg_path,
-                '-f', 'concat',
-                '-safe', '0',
-                '-i', concat_list_file,
-                '-c', 'copy',  # Just copy streams, no re-encoding!
-                '-movflags', '+faststart',
-                '-y',
-                output_file
-            ]
+            # If overlays were applied, use re-encode for compatibility
+            # Otherwise try fast stream copy first
+            use_reencode = has_overlays
             
-            print(f"[{job_id}] Running concat demux (stream copy)...")
-            start_time = datetime.now()
+            if not use_reencode:
+                # Simple concat command - no re-encoding, just stream copy
+                # This is SUPER fast and preserves quality
+                cmd = [
+                    ffmpeg_path,
+                    '-f', 'concat',
+                    '-safe', '0',
+                    '-i', concat_list_file,
+                    '-c', 'copy',  # Just copy streams, no re-encoding!
+                    '-movflags', '+faststart',
+                    '-y',
+                    output_file
+                ]
             
-            result = subprocess.run(cmd, capture_output=True, text=True, timeout=120)
-            elapsed = (datetime.now() - start_time).total_seconds()
-            
-            if result.returncode != 0:
-                print(f"[{job_id}] Stream copy failed: {result.stderr[:300]}")
-                print(f"[{job_id}] Falling back to re-encode method...")
+                print(f"[{job_id}] Running concat demux (stream copy)...")
+                start_time = datetime.now()
                 
-                # Fallback: re-encode with simple scale filter (no audio processing)
+                result = subprocess.run(cmd, capture_output=True, text=True, timeout=120)
+                elapsed = (datetime.now() - start_time).total_seconds()
+                
+                if result.returncode != 0:
+                    print(f"[{job_id}] Stream copy failed: {result.stderr[:300]}")
+                    use_reencode = True  # Fall back to re-encode
+            
+            # Re-encode method - needed when videos have different codecs/formats
+            if use_reencode:
+                print(f"[{job_id}] Using re-encode method for concatenation...")
+                start_time = datetime.now()
+                
                 # Build input arguments
                 input_args = []
                 for vf in processed_files:
@@ -2521,26 +2612,26 @@ def concatenate_videos_async(job_id: str):
                 
                 filter_complex = ";".join(filter_parts) + ";" + "".join(concat_inputs) + f"concat=n={num_videos}:v=1:a=0[outv]"
                 
-                cmd_fallback = [
+                cmd_reencode = [
                     ffmpeg_path,
                     *input_args,
                     '-filter_complex', filter_complex,
                     '-map', '[outv]',
                     '-c:v', 'libx264',
-                    '-preset', 'ultrafast',
-                    '-crf', '28',
+                    '-preset', 'fast',  # Better quality than ultrafast
+                    '-crf', '23',  # Good quality
                     '-an',  # No audio to avoid issues
                     '-movflags', '+faststart',
                     '-y',
                     output_file
                 ]
                 
-                print(f"[{job_id}] Running re-encode fallback (video only)...")
-                result = subprocess.run(cmd_fallback, capture_output=True, text=True, timeout=300)
+                print(f"[{job_id}] Running re-encode (video only)...")
+                result = subprocess.run(cmd_reencode, capture_output=True, text=True, timeout=300)
                 elapsed = (datetime.now() - start_time).total_seconds()
                 
                 if result.returncode != 0:
-                    print(f"[{job_id}] Fallback STDERR: {result.stderr[:500]}")
+                    print(f"[{job_id}] Re-encode STDERR: {result.stderr[:500]}")
                     raise Exception(f"ffmpeg concat failed: {result.stderr[:300]}")
             
             print(f"[{job_id}] Concat completed in {elapsed:.1f}s")
