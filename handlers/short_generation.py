@@ -2430,9 +2430,32 @@ def concatenate_videos_async(job_id: str):
         
         # Helper function to escape text for ffmpeg drawtext filter
         def escape_ffmpeg_text(text):
-            """Escape special characters for ffmpeg drawtext filter"""
+            """Escape special characters for ffmpeg drawtext filter and remove emojis"""
             if not text:
                 return ""
+            import re
+            # Remove emojis and other unicode symbols that ffmpeg can't handle
+            # This regex removes most emoji ranges
+            emoji_pattern = re.compile("["
+                u"\U0001F600-\U0001F64F"  # emoticons
+                u"\U0001F300-\U0001F5FF"  # symbols & pictographs
+                u"\U0001F680-\U0001F6FF"  # transport & map symbols
+                u"\U0001F1E0-\U0001F1FF"  # flags (iOS)
+                u"\U00002702-\U000027B0"
+                u"\U000024C2-\U0001F251"
+                u"\U0001f926-\U0001f937"
+                u"\U00010000-\U0010ffff"
+                u"\u2640-\u2642"
+                u"\u2600-\u2B55"
+                u"\u200d"
+                u"\u23cf"
+                u"\u23e9"
+                u"\u231a"
+                u"\ufe0f"  # dingbats
+                u"\u3030"
+                "]+", re.UNICODE)
+            text = emoji_pattern.sub('', text)
+            
             # Escape backslash first, then other special chars
             text = text.replace('\\', '\\\\')
             text = text.replace("'", "\\'")
@@ -2452,8 +2475,14 @@ def concatenate_videos_async(job_id: str):
                 # Output file for this processed video
                 output_with_text = f"{temp_dir}/scene_{i}_with_text.mp4"
                 
-                # Escape text for ffmpeg
+                # Escape text for ffmpeg (removes emojis too)
                 escaped_text = escape_ffmpeg_text(text_overlay)
+                print(f"[{job_id}] Escaped text: '{escaped_text[:50]}...'")
+                
+                if not escaped_text:
+                    print(f"[{job_id}] Text empty after escaping, using original video")
+                    processed_files.append(video_file)
+                    continue
                 
                 # Text overlay styling - TikTok style (bottom center, white on semi-transparent black box)
                 # Parameters:
@@ -2464,10 +2493,8 @@ def concatenate_videos_async(job_id: str):
                 # - boxborderw=15: Padding around text
                 # - x=(w-text_w)/2: Center horizontally
                 # - y=h-th-120: Position 120px from bottom
-                # - line_spacing=8: Space between lines if text wraps
                 
-                # Build drawtext filter - use default font (sans-serif available in Lambda)
-                # Try multiple fonts in order of preference
+                # Build drawtext filter - use default font (DejaVuSans is commonly available)
                 drawtext_filter = (
                     f"drawtext=text='{escaped_text}'"
                     f":fontsize=42"
@@ -2477,7 +2504,6 @@ def concatenate_videos_async(job_id: str):
                     f":boxborderw=15"
                     f":x=(w-text_w)/2"
                     f":y=h-th-120"
-                    f":line_spacing=8"
                 )
                 
                 # ffmpeg command to add text overlay
@@ -2486,9 +2512,9 @@ def concatenate_videos_async(job_id: str):
                     '-i', video_file,
                     '-vf', drawtext_filter,
                     '-c:v', 'libx264',
-                    '-preset', 'fast',
+                    '-preset', 'ultrafast',  # Faster encoding
                     '-crf', '23',
-                    '-c:a', 'copy',  # Keep audio as-is
+                    '-an',  # No audio to avoid issues
                     '-movflags', '+faststart',
                     '-y',
                     output_with_text
@@ -2496,7 +2522,12 @@ def concatenate_videos_async(job_id: str):
                 
                 try:
                     print(f"[{job_id}] Adding text overlay to scene {i}...")
-                    result = subprocess.run(overlay_cmd, capture_output=True, text=True, timeout=120)
+                    print(f"[{job_id}] Filter: {drawtext_filter[:100]}...")
+                    result = subprocess.run(overlay_cmd, capture_output=True, text=True, timeout=60)
+                    
+                    print(f"[{job_id}] ffmpeg returncode: {result.returncode}")
+                    if result.stderr:
+                        print(f"[{job_id}] ffmpeg stderr: {result.stderr[:500]}")
                     
                     if result.returncode == 0 and os.path.exists(output_with_text):
                         file_size = os.path.getsize(output_with_text)
