@@ -2486,7 +2486,13 @@ def concatenate_videos_async(job_id: str):
                     processed_files.append(video_file)
                     continue
                 
+                # Write text to a file to avoid shell escaping issues with special characters
+                text_file = f"{temp_dir}/text_{i}.txt"
+                with open(text_file, 'w', encoding='utf-8') as f:
+                    f.write(escaped_text)
+                
                 # Text overlay styling - TikTok style (bottom center, white on semi-transparent black box)
+                # Using textfile instead of text= to handle special characters properly
                 # Parameters:
                 # - fontsize=42: Clear readable size for mobile
                 # - fontcolor=white: White text
@@ -2496,9 +2502,9 @@ def concatenate_videos_async(job_id: str):
                 # - x=(w-text_w)/2: Center horizontally
                 # - y=h-th-120: Position 120px from bottom
                 
-                # Build drawtext filter - use default font (DejaVuSans is commonly available)
+                # Build drawtext filter - use textfile for better encoding support
                 drawtext_filter = (
-                    f"drawtext=text='{escaped_text}'"
+                    f"drawtext=textfile='{text_file}'"
                     f":fontsize=42"
                     f":fontcolor=white"
                     f":box=1"
@@ -2524,12 +2530,16 @@ def concatenate_videos_async(job_id: str):
                 
                 try:
                     print(f"[{job_id}] Adding text overlay to scene {i}...")
-                    print(f"[{job_id}] Filter: {drawtext_filter[:100]}...")
+                    print(f"[{job_id}] Filter: {drawtext_filter}")
                     result = subprocess.run(overlay_cmd, capture_output=True, text=True, timeout=60)
                     
                     print(f"[{job_id}] ffmpeg returncode: {result.returncode}")
+                    # Get the last 500 chars of stderr which contains the actual error
                     if result.stderr:
-                        print(f"[{job_id}] ffmpeg stderr: {result.stderr[:500]}")
+                        stderr_lines = result.stderr.strip().split('\n')
+                        # Get last 10 lines which usually contain the error
+                        error_lines = stderr_lines[-10:] if len(stderr_lines) > 10 else stderr_lines
+                        print(f"[{job_id}] ffmpeg error: {chr(10).join(error_lines)}")
                     
                     if result.returncode == 0 and os.path.exists(output_with_text):
                         file_size = os.path.getsize(output_with_text)
@@ -2537,7 +2547,8 @@ def concatenate_videos_async(job_id: str):
                         processed_files.append(output_with_text)
                     else:
                         # Log error but use original video as fallback
-                        print(f"[{job_id}] Text overlay failed for scene {i}: {result.stderr[:200]}")
+                        error_summary = stderr_lines[-3:] if result.stderr else ['Unknown error']
+                        print(f"[{job_id}] Text overlay failed for scene {i}: {error_summary}")
                         print(f"[{job_id}] Using original video for scene {i}")
                         processed_files.append(video_file)
                         
