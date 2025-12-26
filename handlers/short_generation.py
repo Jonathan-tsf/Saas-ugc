@@ -2410,100 +2410,83 @@ def concatenate_videos_async(job_id: str):
         
         output_file = f"{temp_dir}/final.mp4"
         
-        # Run ffmpeg concatenation with filter_complex (normalize + concat in ONE pass)
-        # This is MUCH faster than normalizing each video separately
+        # ULTRA-SIMPLE CONCATENATION using concat demuxer
+        # This is the fastest and most reliable method
         try:
             num_videos = len(processed_files)
-            print(f"[{job_id}] Concatenating {num_videos} videos in single pass...")
+            print(f"[{job_id}] Concatenating {num_videos} videos using simple concat demuxer...")
             
-            # Build filter_complex command that normalizes and concatenates in one go
-            # This avoids writing intermediate files and is much faster
+            # Create concat list file
+            concat_list_file = f"{temp_dir}/concat_list.txt"
+            with open(concat_list_file, 'w') as f:
+                for video_file in processed_files:
+                    # Escape single quotes in path
+                    escaped_path = video_file.replace("'", "'\\''")
+                    f.write(f"file '{escaped_path}'\n")
             
-            # Build input arguments
-            input_args = []
-            for vf in processed_files:
-                input_args.extend(['-i', vf])
+            print(f"[{job_id}] Concat list created with {num_videos} videos")
             
-            # Build filter_complex: scale each input, then concat
-            filter_parts = []
-            concat_inputs = []
-            for i in range(num_videos):
-                # Scale and pad each video to 1080x1920, set fps to 24
-                filter_parts.append(
-                    f"[{i}:v]scale=1080:1920:force_original_aspect_ratio=decrease,"
-                    f"pad=1080:1920:(ow-iw)/2:(oh-ih)/2,setsar=1,fps=24[v{i}]"
-                )
-                # Handle audio - create silent audio if no audio stream
-                filter_parts.append(
-                    f"[{i}:a]aresample=44100,aformat=sample_fmts=fltp:channel_layouts=stereo[a{i}]"
-                )
-                concat_inputs.append(f"[v{i}][a{i}]")
-            
-            # Concat all streams
-            filter_complex = ";".join(filter_parts) + ";" + "".join(concat_inputs) + f"concat=n={num_videos}:v=1:a=1[outv][outa]"
-            
+            # Simple concat command - no re-encoding, just stream copy
+            # This is SUPER fast and preserves quality
             cmd = [
                 ffmpeg_path,
-                *input_args,
-                '-filter_complex', filter_complex,
-                '-map', '[outv]',
-                '-map', '[outa]',
-                '-c:v', 'libx264',
-                '-preset', 'ultrafast',
-                '-crf', '28',
-                '-c:a', 'aac',
-                '-b:a', '128k',
+                '-f', 'concat',
+                '-safe', '0',
+                '-i', concat_list_file,
+                '-c', 'copy',  # Just copy streams, no re-encoding!
                 '-movflags', '+faststart',
                 '-y',
                 output_file
             ]
             
-            print(f"[{job_id}] Running single-pass concat command...")
+            print(f"[{job_id}] Running concat demux (stream copy)...")
             start_time = datetime.now()
             
-            # Run with 5 minute timeout - single pass should be fast
-            result = subprocess.run(cmd, capture_output=True, text=True, timeout=300)
+            result = subprocess.run(cmd, capture_output=True, text=True, timeout=120)
             elapsed = (datetime.now() - start_time).total_seconds()
             
             if result.returncode != 0:
-                print(f"[{job_id}] Concat FAILED after {elapsed:.1f}s!")
-                print(f"[{job_id}] STDERR: {result.stderr[:500]}")
+                print(f"[{job_id}] Stream copy failed: {result.stderr[:300]}")
+                print(f"[{job_id}] Falling back to re-encode method...")
                 
-                # Fallback: try simpler approach without audio processing
-                print(f"[{job_id}] Trying fallback: video-only concat...")
+                # Fallback: re-encode with simple scale filter (no audio processing)
+                # Build input arguments
+                input_args = []
+                for vf in processed_files:
+                    input_args.extend(['-i', vf])
                 
-                # Simpler filter_complex without audio
-                filter_parts_simple = []
-                concat_inputs_simple = []
+                # Simple filter: scale all to same size, then concat
+                filter_parts = []
+                concat_inputs = []
                 for i in range(num_videos):
-                    filter_parts_simple.append(
+                    filter_parts.append(
                         f"[{i}:v]scale=1080:1920:force_original_aspect_ratio=decrease,"
-                        f"pad=1080:1920:(ow-iw)/2:(oh-ih)/2,setsar=1,fps=24[v{i}]"
+                        f"pad=1080:1920:(ow-iw)/2:(oh-ih)/2,setsar=1[v{i}]"
                     )
-                    concat_inputs_simple.append(f"[v{i}]")
+                    concat_inputs.append(f"[v{i}]")
                 
-                filter_simple = ";".join(filter_parts_simple) + ";" + "".join(concat_inputs_simple) + f"concat=n={num_videos}:v=1:a=0[outv]"
+                filter_complex = ";".join(filter_parts) + ";" + "".join(concat_inputs) + f"concat=n={num_videos}:v=1:a=0[outv]"
                 
-                cmd_simple = [
+                cmd_fallback = [
                     ffmpeg_path,
                     *input_args,
-                    '-filter_complex', filter_simple,
+                    '-filter_complex', filter_complex,
                     '-map', '[outv]',
                     '-c:v', 'libx264',
                     '-preset', 'ultrafast',
                     '-crf', '28',
-                    '-an',  # No audio
+                    '-an',  # No audio to avoid issues
                     '-movflags', '+faststart',
                     '-y',
                     output_file
                 ]
                 
-                result = subprocess.run(cmd_simple, capture_output=True, text=True, timeout=300)
+                print(f"[{job_id}] Running re-encode fallback (video only)...")
+                result = subprocess.run(cmd_fallback, capture_output=True, text=True, timeout=300)
                 elapsed = (datetime.now() - start_time).total_seconds()
                 
                 if result.returncode != 0:
-                    print(f"[{job_id}] Fallback also FAILED!")
-                    print(f"[{job_id}] STDERR: {result.stderr[:500]}")
+                    print(f"[{job_id}] Fallback STDERR: {result.stderr[:500]}")
                     raise Exception(f"ffmpeg concat failed: {result.stderr[:300]}")
             
             print(f"[{job_id}] Concat completed in {elapsed:.1f}s")
