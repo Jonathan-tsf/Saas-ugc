@@ -2012,14 +2012,16 @@ def generate_scene_videos_async(job_id: str):
             ':updated': datetime.now().isoformat()
         }
         
+        expr_names = {'#status': 'status'}
         if error_msg:
-            update_expr += ', error = :error'
+            update_expr += ', #error = :error'
             expr_values[':error'] = error_msg
+            expr_names['#error'] = 'error'
         
         jobs_table.update_item(
             Key={'id': job_id},
             UpdateExpression=update_expr,
-            ExpressionAttributeNames={'#status': 'status'},
+            ExpressionAttributeNames=expr_names,
             ExpressionAttributeValues=expr_values
         )
         
@@ -2031,8 +2033,8 @@ def generate_scene_videos_async(job_id: str):
         traceback.print_exc()
         jobs_table.update_item(
             Key={'id': job_id},
-            UpdateExpression='SET #status = :status, error = :error, updated_at = :updated',
-            ExpressionAttributeNames={'#status': 'status'},
+            UpdateExpression='SET #status = :status, #error = :error, updated_at = :updated',
+            ExpressionAttributeNames={'#status': 'status', '#error': 'error'},
             ExpressionAttributeValues={
                 ':status': 'error',
                 ':error': str(e),
@@ -2412,8 +2414,8 @@ def concatenate_videos_async(job_id: str):
             # Mark job complete with warning
             jobs_table.update_item(
                 Key={'id': job_id},
-                UpdateExpression='SET #status = :status, final_video_url = :url, progress = :prog, error = :err, updated_at = :updated',
-                ExpressionAttributeNames={'#status': 'status'},
+                UpdateExpression='SET #status = :status, final_video_url = :url, progress = :prog, #error = :err, updated_at = :updated',
+                ExpressionAttributeNames={'#status': 'status', '#error': 'error'},
                 ExpressionAttributeValues={
                     ':status': 'completed',
                     ':url': final_url,
@@ -2758,8 +2760,8 @@ def concatenate_videos_async(job_id: str):
         
         jobs_table.update_item(
             Key={'id': job_id},
-            UpdateExpression='SET #status = :status, error = :error, updated_at = :updated',
-            ExpressionAttributeNames={'#status': 'status'},
+            UpdateExpression='SET #status = :status, #error = :error, updated_at = :updated',
+            ExpressionAttributeNames={'#status': 'status', '#error': 'error'},
             ExpressionAttributeValues={
                 ':status': 'error',
                 ':error': str(e),
