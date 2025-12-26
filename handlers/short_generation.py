@@ -2360,17 +2360,37 @@ def concatenate_videos_async(job_id: str):
         processed_files = []
         ffmpeg_path = '/opt/bin/ffmpeg'  # Lambda Layer path
         
-        # Check if ffmpeg exists first
+        # Check if ffmpeg exists first - with extensive logging
         import os
+        print(f"[{job_id}] Checking ffmpeg at: {ffmpeg_path}")
+        print(f"[{job_id}] /opt contents: {os.listdir('/opt') if os.path.exists('/opt') else 'NOT FOUND'}")
+        if os.path.exists('/opt/bin'):
+            print(f"[{job_id}] /opt/bin contents: {os.listdir('/opt/bin')}")
+        
         if not os.path.exists(ffmpeg_path):
             # Try alternative paths
-            alt_paths = ['/opt/ffmpeg/ffmpeg', '/usr/bin/ffmpeg', '/var/task/ffmpeg']
+            alt_paths = ['/opt/ffmpeg/ffmpeg', '/usr/bin/ffmpeg', '/var/task/ffmpeg', '/opt/bin/ffmpeg-git-20240629-amd64-static/ffmpeg']
+            print(f"[{job_id}] ffmpeg not at default path, trying alternatives...")
             for alt in alt_paths:
+                print(f"[{job_id}] Trying: {alt} - exists: {os.path.exists(alt)}")
                 if os.path.exists(alt):
                     ffmpeg_path = alt
                     break
             else:
-                raise FileNotFoundError(f"ffmpeg not found at {ffmpeg_path} or alternatives")
+                # ffmpeg NOT found - update job with error and return
+                error_msg = f"ffmpeg not found. Checked: {ffmpeg_path}, {alt_paths}"
+                print(f"[{job_id}] CRITICAL: {error_msg}")
+                jobs_table.update_item(
+                    Key={'id': job_id},
+                    UpdateExpression='SET #status = :status, error = :error, updated_at = :updated',
+                    ExpressionAttributeNames={'#status': 'status'},
+                    ExpressionAttributeValues={
+                        ':status': 'error',
+                        ':error': error_msg,
+                        ':updated': datetime.now().isoformat()
+                    }
+                )
+                return  # Exit early
         
         print(f"[{job_id}] Using ffmpeg at: {ffmpeg_path}")
         
