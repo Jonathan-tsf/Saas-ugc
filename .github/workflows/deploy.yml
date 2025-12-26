@@ -67,19 +67,14 @@ jobs:
           aws lambda wait function-updated \
             --function-name ${{ secrets.LAMBDA_FUNCTION_NAME }}
           echo "Lambda function is ready!"
- 
-      - name: Add Lambda Layers (Pillow + ffmpeg)
-        run: |
-          aws lambda update-function-configuration \
-            --function-name ${{ secrets.LAMBDA_FUNCTION_NAME }} \
-            --layers \
-              arn:aws:lambda:us-east-1:770693421928:layer:Klayers-p312-Pillow:8 \
-              arn:aws:lambda:us-east-1:634165596570:layer:ffmpeg:1
+
+      # Note: Lambda Layers (Pillow + ffmpeg) are configured manually in AWS Console
+      # Do not update them here to avoid permission issues
 
       - name: Deployment successful
         run: |
           echo "✅ Lambda deployed successfully!"
           echo "Function: ${{ secrets.LAMBDA_FUNCTION_NAME }}"
           echo "Region: ${{ secrets.AWS_REGION }}"
-          echo "Files included: lambda_function.py, config.py, handlers/"
+          echo "Files included: lambda_function.py, config.py, handlers/, fonts/"
 
