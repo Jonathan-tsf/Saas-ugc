@@ -8,6 +8,7 @@ on:
       - 'lambda_function.py'
       - 'config.py'
       - 'handlers/**'
+      - 'fonts/**'
       - 'requirements.txt'
       - '.github/workflows/deploy.yml'
   workflow_dispatch: # Permet de lancer manuellement
@@ -33,17 +34,18 @@ jobs:
       - name: Create deployment package
         run: |
           cd ${{ github.workspace }}
-          # Package all Lambda files including handlers module
+          # Package all Lambda files including handlers module and fonts
           zip -r deployment.zip \
             lambda_function.py \
             config.py \
             handlers/ \
+            fonts/ \
             -x "*.pyc" -x "__pycache__/*" -x ".git/*"
           # Add installed dependencies (excluding boto3 which is in Lambda runtime)
           zip -r deployment.zip . \
             -x "*.pyc" -x "__pycache__/*" -x ".git/*" -x ".github/*" \
             -x "deployment.zip" -x "requirements.txt" -x "README.md" \
-            -x "lambda_function.py" -x "config.py" -x "handlers/*"
+            -x "lambda_function.py" -x "config.py" -x "handlers/*" -x "fonts/*"
 
       - name: Configure AWS credentials
         uses: aws-actions/configure-aws-credentials@v4

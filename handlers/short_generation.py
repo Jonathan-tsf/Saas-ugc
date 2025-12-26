@@ -2494,6 +2494,7 @@ def concatenate_videos_async(job_id: str):
                 # Text overlay styling - TikTok style (bottom center, white on semi-transparent black box)
                 # Using textfile instead of text= to handle special characters properly
                 # Parameters:
+                # - fontfile: Path to TTF font (required on Lambda which has no system fonts)
                 # - fontsize=42: Clear readable size for mobile
                 # - fontcolor=white: White text
                 # - box=1: Enable background box
@@ -2502,9 +2503,31 @@ def concatenate_videos_async(job_id: str):
                 # - x=(w-text_w)/2: Center horizontally
                 # - y=h-th-120: Position 120px from bottom
                 
+                # Find font file - deployed with Lambda package
+                # Lambda deploys to /var/task, fonts folder is at /var/task/fonts
+                font_paths = [
+                    '/var/task/fonts/DejaVuSans-Bold.ttf',  # Lambda deployment
+                    os.path.join(os.path.dirname(os.path.dirname(__file__)), 'fonts', 'DejaVuSans-Bold.ttf'),  # Local dev
+                ]
+                font_file = None
+                for fp in font_paths:
+                    if os.path.exists(fp):
+                        font_file = fp
+                        print(f"[{job_id}] Found font at: {fp}")
+                        break
+                
+                if not font_file:
+                    print(f"[{job_id}] WARNING: No font file found! Trying paths: {font_paths}")
+                    print(f"[{job_id}] /var/task contents: {os.listdir('/var/task') if os.path.exists('/var/task') else 'N/A'}")
+                    # Try without fontfile - will likely fail but worth a shot
+                    font_param = ""
+                else:
+                    font_param = f":fontfile='{font_file}'"
+                
                 # Build drawtext filter - use textfile for better encoding support
                 drawtext_filter = (
                     f"drawtext=textfile='{text_file}'"
+                    f"{font_param}"
                     f":fontsize=42"
                     f":fontcolor=white"
                     f":box=1"
