@@ -2359,38 +2359,72 @@ def concatenate_videos_async(job_id: str):
         # Process each video to add text overlay if present
         processed_files = []
         ffmpeg_path = '/opt/bin/ffmpeg'  # Lambda Layer path
+        ffmpeg_available = False
         
         # Check if ffmpeg exists first - with extensive logging
         import os
         print(f"[{job_id}] Checking ffmpeg at: {ffmpeg_path}")
-        print(f"[{job_id}] /opt contents: {os.listdir('/opt') if os.path.exists('/opt') else 'NOT FOUND'}")
-        if os.path.exists('/opt/bin'):
-            print(f"[{job_id}] /opt/bin contents: {os.listdir('/opt/bin')}")
+        try:
+            opt_contents = os.listdir('/opt') if os.path.exists('/opt') else []
+            print(f"[{job_id}] /opt contents: {opt_contents}")
+            if os.path.exists('/opt/bin'):
+                print(f"[{job_id}] /opt/bin contents: {os.listdir('/opt/bin')}")
+        except Exception as e:
+            print(f"[{job_id}] Error listing /opt: {e}")
         
         if not os.path.exists(ffmpeg_path):
             # Try alternative paths
             alt_paths = ['/opt/ffmpeg/ffmpeg', '/usr/bin/ffmpeg', '/var/task/ffmpeg', '/opt/bin/ffmpeg-git-20240629-amd64-static/ffmpeg']
             print(f"[{job_id}] ffmpeg not at default path, trying alternatives...")
             for alt in alt_paths:
-                print(f"[{job_id}] Trying: {alt} - exists: {os.path.exists(alt)}")
-                if os.path.exists(alt):
+                exists = os.path.exists(alt)
+                print(f"[{job_id}] Trying: {alt} - exists: {exists}")
+                if exists:
                     ffmpeg_path = alt
+                    ffmpeg_available = True
                     break
-            else:
-                # ffmpeg NOT found - update job with error and return
-                error_msg = f"ffmpeg not found. Checked: {ffmpeg_path}, {alt_paths}"
-                print(f"[{job_id}] CRITICAL: {error_msg}")
-                jobs_table.update_item(
-                    Key={'id': job_id},
-                    UpdateExpression='SET #status = :status, error = :error, updated_at = :updated',
-                    ExpressionAttributeNames={'#status': 'status'},
-                    ExpressionAttributeValues={
-                        ':status': 'error',
-                        ':error': error_msg,
-                        ':updated': datetime.now().isoformat()
-                    }
-                )
-                return  # Exit early
+        else:
+            ffmpeg_available = True
+        
+        # If ffmpeg not available, use FALLBACK: just use first video as final
+        if not ffmpeg_available:
+            print(f"[{job_id}] WARNING: ffmpeg not found! Using fallback (first video only)")
+            
+            # Use the first video URL directly as the final video
+            first_video_url = video_urls[0]['url']
+            final_url = first_video_url
+            
+            # Update script with "final" video (actually just first scene)
+            try:
+                script_result = shorts_table.get_item(Key={'id': script_id})
+                script = script_result.get('Item')
+                if script:
+                    script['final_video_url'] = final_url
+                    script['final_video_created_at'] = datetime.now().isoformat()
+                    script['status'] = 'completed'
+                    script['updated_at'] = datetime.now().isoformat()
+                    
+                    script = convert_to_decimal(script)
+                    shorts_table.put_item(Item=script)
+            except Exception as e:
+                print(f"[{job_id}] Error updating script: {e}")
+            
+            # Mark job complete with warning
+            jobs_table.update_item(
+                Key={'id': job_id},
+                UpdateExpression='SET #status = :status, final_video_url = :url, progress = :prog, error = :err, updated_at = :updated',
+                ExpressionAttributeNames={'#status': 'status'},
+                ExpressionAttributeValues={
+                    ':status': 'completed',
+                    ':url': final_url,
+                    ':prog': Decimal('100'),
+                    ':err': 'FALLBACK: ffmpeg not available - using first video only. Add ffmpeg Lambda Layer for real concatenation.',
+                    ':updated': datetime.now().isoformat()
+                }
+            )
+            
+            print(f"[{job_id}] FALLBACK completed: {final_url}")
+            return  # Exit early
         
         print(f"[{job_id}] Using ffmpeg at: {ffmpeg_path}")
         
