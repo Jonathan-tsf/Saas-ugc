@@ -66,11 +66,13 @@ jobs:
             --function-name ${{ secrets.LAMBDA_FUNCTION_NAME }}
           echo "Lambda function is ready!"
  
-      - name: Add Pillow Lambda Layer
+      - name: Add Lambda Layers (Pillow + ffmpeg)
         run: |
           aws lambda update-function-configuration \
             --function-name ${{ secrets.LAMBDA_FUNCTION_NAME }} \
-            --layers arn:aws:lambda:us-east-1:770693421928:layer:Klayers-p312-Pillow:8
+            --layers \
+              arn:aws:lambda:us-east-1:770693421928:layer:Klayers-p312-Pillow:8 \
+              arn:aws:lambda:us-east-1:634165596570:layer:ffmpeg:1
 
       - name: Deployment successful
         run: |
