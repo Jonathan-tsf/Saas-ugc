@@ -13,7 +13,7 @@ from decimal import Decimal
 
 from config import (
     response, decimal_to_python, verify_admin,
-    dynamodb, bedrock_runtime, ambassadors_table, upload_to_s3, lambda_client, s3, S3_BUCKET
+    dynamodb, bedrock_runtime, ambassadors_table, upload_to_s3, lambda_client, s3, S3_BUCKET, rekognition
 )
 from handlers.gemini_client import generate_image
 
@@ -2467,6 +2467,135 @@ def concatenate_videos_async(job_id: str):
             text = text.replace('\n', ' ').replace('\r', '')
             return text.strip()
         
+        def detect_face_position(video_file, job_id):
+            """
+            Use AWS Rekognition to detect face position in video frame.
+            Returns the best Y position for text (avoiding face).
+            
+            TikTok safe zone:
+            - Top: 150px (for username/title)
+            - Bottom: 270px (for buttons/description)
+            - Sides: 48px padding
+            
+            Video dimensions: 1080x1920 (9:16)
+            """
+            try:
+                # Extract first frame from video using ffmpeg
+                frame_file = video_file.replace('.mp4', '_frame.jpg')
+                extract_cmd = [
+                    ffmpeg_path,
+                    '-i', video_file,
+                    '-vframes', '1',
+                    '-q:v', '2',
+                    '-y',
+                    frame_file
+                ]
+                subprocess.run(extract_cmd, capture_output=True, timeout=10)
+                
+                if not os.path.exists(frame_file):
+                    print(f"[{job_id}] Could not extract frame for face detection")
+                    return None
+                
+                # Read frame and send to Rekognition
+                with open(frame_file, 'rb') as f:
+                    frame_bytes = f.read()
+                
+                # Detect faces with Rekognition
+                response = rekognition.detect_faces(
+                    Image={'Bytes': frame_bytes},
+                    Attributes=['DEFAULT']
+                )
+                
+                faces = response.get('FaceDetails', [])
+                print(f"[{job_id}] Rekognition detected {len(faces)} face(s)")
+                
+                # Clean up frame file
+                try:
+                    os.remove(frame_file)
+                except:
+                    pass
+                
+                if not faces:
+                    return None
+                
+                # Get the main face (highest confidence or largest)
+                main_face = max(faces, key=lambda f: f.get('Confidence', 0))
+                bbox = main_face.get('BoundingBox', {})
+                
+                # BoundingBox is in relative coordinates (0-1)
+                face_top = bbox.get('Top', 0)  # 0 = top of frame
+                face_height = bbox.get('Height', 0)
+                face_bottom = face_top + face_height
+                
+                # Convert to pixels (1920 height)
+                face_top_px = int(face_top * 1920)
+                face_bottom_px = int(face_bottom * 1920)
+                
+                print(f"[{job_id}] Face position: top={face_top_px}px, bottom={face_bottom_px}px")
+                
+                return {
+                    'face_top': face_top_px,
+                    'face_bottom': face_bottom_px,
+                    'face_center_y': (face_top_px + face_bottom_px) // 2
+                }
+                
+            except Exception as e:
+                print(f"[{job_id}] Face detection error: {e}")
+                return None
+        
+        def calculate_text_position(face_info, video_height=1920):
+            """
+            Calculate optimal text position based on face detection.
+            
+            TikTok safe zones (1080x1920):
+            - Top safe: y >= 150px (avoid status bar/username)
+            - Bottom safe: y <= 1650px (avoid buttons/description - 270px from bottom)
+            - Text height estimate: ~80px with padding
+            
+            Strategy:
+            1. If face is in upper half → place text in lower safe zone
+            2. If face is in lower half → place text in upper safe zone  
+            3. If no face detected → default to upper-middle area
+            """
+            # TikTok safe zone boundaries
+            TOP_SAFE = 180  # Below username/status
+            BOTTOM_SAFE = 1600  # Above buttons (270px from bottom + margin)
+            TEXT_HEIGHT = 100  # Estimated text box height with padding
+            
+            if not face_info:
+                # No face detected - place in upper-middle safe area
+                return TOP_SAFE + 100  # ~280px from top
+            
+            face_center = face_info['face_center_y']
+            face_top = face_info['face_top']
+            face_bottom = face_info['face_bottom']
+            
+            # Add safety margin around face (100px)
+            face_zone_top = max(0, face_top - 100)
+            face_zone_bottom = min(video_height, face_bottom + 100)
+            
+            # Check available space above and below face
+            space_above = face_zone_top - TOP_SAFE
+            space_below = BOTTOM_SAFE - face_zone_bottom
+            
+            print(f"Space above face: {space_above}px, below: {space_below}px")
+            
+            # Choose position with most space
+            if space_above >= TEXT_HEIGHT and space_above >= space_below:
+                # Place above face
+                y_pos = TOP_SAFE + 50
+                print(f"Placing text ABOVE face at y={y_pos}")
+            elif space_below >= TEXT_HEIGHT:
+                # Place below face  
+                y_pos = face_zone_bottom + 50
+                print(f"Placing text BELOW face at y={y_pos}")
+            else:
+                # Not enough space - use upper safe zone as fallback
+                y_pos = TOP_SAFE + 50
+                print(f"Using fallback position at y={y_pos}")
+            
+            return y_pos
+        
         # Process each video to add text overlay if present
         for i, (video_file, video_info) in enumerate(zip(video_files, video_urls)):
             text_overlay = video_info.get('text_overlay')
@@ -2491,17 +2620,11 @@ def concatenate_videos_async(job_id: str):
                 with open(text_file, 'w', encoding='utf-8') as f:
                     f.write(escaped_text)
                 
-                # Text overlay styling - TikTok style (bottom center, white on semi-transparent black box)
-                # Using textfile instead of text= to handle special characters properly
-                # Parameters:
-                # - fontfile: Path to TTF font (required on Lambda which has no system fonts)
-                # - fontsize=42: Clear readable size for mobile
-                # - fontcolor=white: White text
-                # - box=1: Enable background box
-                # - boxcolor=black@0.7: Semi-transparent black background (70% opacity)
-                # - boxborderw=15: Padding around text
-                # - x=(w-text_w)/2: Center horizontally
-                # - y=h-th-120: Position 120px from bottom
+                # Detect face position using AWS Rekognition
+                print(f"[{job_id}] Detecting face position for scene {i}...")
+                face_info = detect_face_position(video_file, job_id)
+                text_y_position = calculate_text_position(face_info)
+                print(f"[{job_id}] Text Y position: {text_y_position}px")
                 
                 # Find font file - deployed with Lambda package
                 # Lambda deploys to /var/task, fonts folder is at /var/task/fonts
@@ -2524,17 +2647,40 @@ def concatenate_videos_async(job_id: str):
                 else:
                     font_param = f":fontfile='{font_file}'"
                 
-                # Build drawtext filter - use textfile for better encoding support
+                # NEW STYLE: Black text on white background with rounded corners
+                # TikTok safe zone: 48px side padding (total width: 1080 - 96 = 984px max)
+                # Font: Calibri style (DejaVuSans-Bold is similar), size 46
+                # Box: White background with rounded effect via padding
+                #
+                # ffmpeg drawtext parameters:
+                # - fontsize=46: Large readable text (Calibri 46 equivalent)
+                # - fontcolor=black: Black text
+                # - box=1: Enable background box
+                # - boxcolor=white: Solid white background
+                # - boxborderw=20: Padding for rounded appearance (20px all around)
+                # - borderw=3: Text border for better readability
+                # - bordercolor=white: Match box color
+                # - x: Center with max width constraint (48px safe zone each side)
+                # - y: Dynamic position based on face detection
+                
+                # Calculate X position to ensure text stays within safe zone
+                # Safe zone: 48px from each side = 984px max width
+                # Center the text box: x = (w-text_w)/2, but clamp to safe zone
+                x_position = "max(48\\,min((w-text_w)/2\\,w-text_w-48))"
+                
+                # Build drawtext filter with new style
                 drawtext_filter = (
                     f"drawtext=textfile='{text_file}'"
                     f"{font_param}"
-                    f":fontsize=42"
-                    f":fontcolor=white"
+                    f":fontsize=46"
+                    f":fontcolor=black"
                     f":box=1"
-                    f":boxcolor=black@0.7"
-                    f":boxborderw=15"
-                    f":x=(w-text_w)/2"
-                    f":y=h-th-120"
+                    f":boxcolor=white"
+                    f":boxborderw=20"
+                    f":borderw=2"
+                    f":bordercolor=white"
+                    f":x={x_position}"
+                    f":y={text_y_position}"
                 )
                 
                 # ffmpeg command to add text overlay

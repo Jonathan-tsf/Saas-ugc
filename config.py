@@ -27,6 +27,7 @@ ses = boto3.client('ses', region_name='us-east-1')
 s3 = boto3.client('s3', region_name='us-east-1')
 lambda_client = boto3.client('lambda', region_name='us-east-1')
 bedrock_runtime = boto3.client('bedrock-runtime', region_name='us-east-1')
+rekognition = boto3.client('rekognition', region_name='us-east-1')
 
 
 def get_bedrock_client():
