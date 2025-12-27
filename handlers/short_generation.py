@@ -2642,43 +2642,91 @@ def concatenate_videos_async(job_id: str):
                 if not font_file:
                     print(f"[{job_id}] WARNING: No font file found! Trying paths: {font_paths}")
                     print(f"[{job_id}] /var/task contents: {os.listdir('/var/task') if os.path.exists('/var/task') else 'N/A'}")
-                    # Try without fontfile - will likely fail but worth a shot
                     font_param = ""
                 else:
                     font_param = f":fontfile='{font_file}'"
                 
-                # NEW STYLE: Black text on white background with rounded corners
-                # TikTok safe zone: 48px side padding (total width: 1080 - 96 = 984px max)
-                # Font: Calibri style (DejaVuSans-Bold is similar), size 46
-                # Box: White background with rounded effect via padding
+                # ============================================================
+                # TEXT OVERLAY STYLE - TikTok Style with Rounded Background
+                # ============================================================
+                # 
+                # Video: 1080x1920 (9:16 portrait)
+                # Safe zones: 60px sides, dynamic Y position
                 #
-                # ffmpeg drawtext parameters:
-                # - fontsize=46: Large readable text (Calibri 46 equivalent)
+                # Style:
+                # - Font size: 56 (large, readable on mobile)
+                # - Black text on white background  
+                # - Rounded corners effect (simulated with high padding)
+                # - Auto line breaks to fit within safe zone
+                # - Max width: 960px (1080 - 60*2)
+                #
+                # For rounded corners, we use a two-pass approach:
+                # 1. First draw a rounded rectangle background
+                # 2. Then draw text on top
+                # 
+                # Since ffmpeg drawtext box doesn't support border-radius,
+                # we create a rounded effect with generous padding
+                # ============================================================
+                
+                # Calculate max characters per line based on font size
+                # At fontsize 56, roughly 20-25 chars fit in 960px width
+                MAX_CHARS_PER_LINE = 22
+                
+                # Word wrap the text
+                words = escaped_text.split()
+                lines = []
+                current_line = []
+                current_length = 0
+                
+                for word in words:
+                    if current_length + len(word) + 1 <= MAX_CHARS_PER_LINE:
+                        current_line.append(word)
+                        current_length += len(word) + 1
+                    else:
+                        if current_line:
+                            lines.append(' '.join(current_line))
+                        current_line = [word]
+                        current_length = len(word)
+                
+                if current_line:
+                    lines.append(' '.join(current_line))
+                
+                # Limit to max 3 lines to keep it readable
+                if len(lines) > 3:
+                    lines = lines[:3]
+                    lines[2] = lines[2][:MAX_CHARS_PER_LINE-3] + '...'
+                
+                wrapped_text = '\n'.join(lines)
+                print(f"[{job_id}] Wrapped text ({len(lines)} lines): {wrapped_text[:60]}...")
+                
+                # Rewrite text file with wrapped content
+                with open(text_file, 'w', encoding='utf-8') as f:
+                    f.write(wrapped_text)
+                
+                # Calculate center X position
+                # For multi-line text, ffmpeg centers each line within text_w
+                x_position = "(w-text_w)/2"
+                
+                # Build drawtext filter
+                # - fontsize=56: Large readable text
                 # - fontcolor=black: Black text
                 # - box=1: Enable background box
-                # - boxcolor=white: Solid white background
-                # - boxborderw=20: Padding for rounded appearance (20px all around)
-                # - borderw=3: Text border for better readability
-                # - bordercolor=white: Match box color
-                # - x: Center with max width constraint (48px safe zone each side)
-                # - y: Dynamic position based on face detection
-                
-                # Calculate X position to ensure text stays within safe zone
-                # Safe zone: 48px from each side = 984px max width
-                # Center the text box: x = (w-text_w)/2, but clamp to safe zone
-                x_position = "max(48\\,min((w-text_w)/2\\,w-text_w-48))"
-                
-                # Build drawtext filter with new style
+                # - boxcolor=white@1.0: Solid white background
+                # - boxborderw=35: Large padding for rounded appearance
+                # - shadowcolor/shadowx/shadowy: Subtle shadow for depth
+                # - line_spacing=15: Space between lines
                 drawtext_filter = (
                     f"drawtext=textfile='{text_file}'"
                     f"{font_param}"
-                    f":fontsize=46"
+                    f":fontsize=56"
                     f":fontcolor=black"
                     f":box=1"
-                    f":boxcolor=white"
-                    f":boxborderw=20"
-                    f":borderw=2"
-                    f":bordercolor=white"
+                    f":boxcolor=white@1.0"
+                    f":boxborderw=35"
+                    f":line_spacing=15"
+                    f":shadowcolor=gray@0.3"
+                    f":shadowx=3"
+                    f":shadowy=3"
                     f":x={x_position}"
                     f":y={text_y_position}"
                 )
